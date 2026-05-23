@@ -1,1 +1,0 @@
-/home/marley/git/Ryzenadj-gtk/app.py

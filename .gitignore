@@ -1,0 +1,16 @@
+# Build and package files
+src/
+pkg/
+*.pkg.tar.zst
+
+# Scripts
+test_imports.sh
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local config
+.config/

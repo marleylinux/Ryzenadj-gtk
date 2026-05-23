@@ -1,3 +1,0 @@
-#!/bin/sh
-export PYTHONPATH="/usr/share/ryzenadj-gtk:$PYTHONPATH"
-exec python3 /usr/share/ryzenadj-gtk/app.py "$@"

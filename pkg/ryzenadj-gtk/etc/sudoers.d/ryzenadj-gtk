@@ -1,7 +1,0 @@
-%wheel ALL=(ALL) NOPASSWD: /usr/bin/ryzenadj
-%wheel ALL=(ALL) NOPASSWD: /usr/local/bin/ryzenadj
-%wheel ALL=(ALL) NOPASSWD: /usr/bin/systemctl enable ryzenadj-gtk-apply.service
-%wheel ALL=(ALL) NOPASSWD: /usr/bin/systemctl disable ryzenadj-gtk-apply.service
-%wheel ALL=(ALL) NOPASSWD: /usr/bin/systemctl enable --now ryzenadj-gtk-apply.service
-%wheel ALL=(ALL) NOPASSWD: /usr/bin/systemctl disable --now ryzenadj-gtk-apply.service
-%wheel ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-enabled ryzenadj-gtk-apply.service
