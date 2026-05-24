@@ -458,12 +458,12 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     hero_box.append(status_box)
 
     # Center: Icon + Text
-    center_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=28)
+    center_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
     center_content.set_hexpand(True)
     center_content.set_halign(Gtk.Align.CENTER)
 
     hero_icon = Gtk.Image.new_from_icon_name("utilities-system-monitor-symbolic")
-    hero_icon.set_pixel_size(80)
+    hero_icon.set_pixel_size(48)
     hero_icon.add_css_class("hero-icon")
     center_content.append(hero_icon)
 

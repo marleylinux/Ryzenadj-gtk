@@ -66,133 +66,127 @@ window.ryzenadj-win {
 
 /* ─── Dashboard Hero Banner (Ultra-Modern Overhaul) ───────── */
 .hero-box {
-    padding: 48px 32px 40px 32px;
-    margin-bottom: 24px;
+    padding: 24px;
+    margin-bottom: 16px;
     background: radial-gradient(circle at top center, alpha(@accent_bg_color, 0.18) 0%, alpha(@accent_bg_color, 0.05) 40%, transparent 100%);
-    border-radius: 0 0 48px 48px;
-    border-bottom: 1px solid alpha(@accent_bg_color, 0.15);
+    border-radius: 20px;
+    border: 1px solid alpha(@accent_bg_color, 0.15);
 }
 
 .hero-title-box {
-    margin-left: 28px;
+    margin-left: 16px;
 }
 
 .hero-icon {
     color: @accent_bg_color;
-    -gtk-icon-shadow: 0 0 32px alpha(@accent_bg_color, 0.6);
+    -gtk-icon-shadow: 0 0 20px alpha(@accent_bg_color, 0.5);
 }
 
 .hero-title {
-    font-size: 42px;
+    font-size: 30px;
     font-weight: 1000;
-    letter-spacing: -1.8px;
+    letter-spacing: -1.2px;
     color: @window_fg_color;
-    text-shadow: 0 2px 4px alpha(black, 0.2);
+    text-shadow: 0 2px 4px alpha(black, 0.15);
 }
 
 .hero-subtitle {
-    font-size: 16px;
+    font-size: 13px;
     font-weight: 700;
     color: alpha(@window_fg_color, 0.45);
-    letter-spacing: -0.2px;
 }
 
 .hero-cpu-badge {
     background-color: alpha(@accent_bg_color, 0.1);
     color: @accent_bg_color;
-    border: 1px solid alpha(@accent_bg_color, 0.2);
-    border-radius: 10px;
+    border: 1px solid alpha(@accent_bg_color, 0.25);
+    border-radius: 8px;
     padding: 2px 10px;
     font-weight: 900;
-    font-size: 13px;
+    font-size: 11px;
     margin-left: 8px;
 }
 
 @keyframes status-pulse {
     0% {
-        background-color: alpha(#30d158, 0.25);
-        border-color: alpha(#30d158, 0.5);
-        box-shadow: 0 0 0 0 alpha(#30d158, 0.3);
+        background-color: alpha(#30d158, 0.2);
+        border-color: alpha(#30d158, 0.4);
     }
     50% {
-        background-color: alpha(#30d158, 0.45);
-        border-color: alpha(#30d158, 1.0);
-        box-shadow: 0 0 24px 6px alpha(#30d158, 0.4);
+        background-color: alpha(#30d158, 0.4);
+        border-color: alpha(#30d158, 0.8);
     }
     100% {
-        background-color: alpha(#30d158, 0.25);
-        border-color: alpha(#30d158, 0.5);
-        box-shadow: 0 0 0 0 alpha(#30d158, 0.3);
+        background-color: alpha(#30d158, 0.2);
+        border-color: alpha(#30d158, 0.4);
     }
 }
 
 .live-status-pill {
-    background-color: alpha(#30d158, 0.25);
+    background-color: alpha(#30d158, 0.2);
     color: #30d158;
-    border: 1px solid alpha(#30d158, 0.5);
-    border-radius: 18px;
-    padding: 6px 16px;
-    font-size: 12px;
-    font-weight: 1000;
-    letter-spacing: 1px;
+    border: 1px solid alpha(#30d158, 0.4);
+    border-radius: 12px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 0.5px;
     text-transform: uppercase;
-    animation: status-pulse 4s infinite cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ─── Category section headers (Ptyxis Pro) ──────────────── */
 .section-title-box {
-    margin-top: 40px;
-    margin-bottom: 20px;
-    padding: 0 12px;
+    margin-top: 24px;
+    margin-bottom: 12px;
+    padding: 0 4px;
 }
 
 .section-title-label {
-    font-size: 19px;
-    font-weight: 900;
-    letter-spacing: -0.4px;
+    font-size: 15px;
+    font-weight: bold;
     color: @window_fg_color;
 }
 
 .category-icon {
     color: @accent_bg_color;
-    margin-right: 14px;
-    -gtk-icon-size: 22px;
+    margin-right: 8px;
+    -gtk-icon-size: 18px;
 }
 
 /* ─── Premium Monitor Cards (Glassy Pro Overhaul) ────────── */
 .monitor-card {
-    background-color: alpha(@window_fg_color, 0.05);
-    background-image: linear-gradient(145deg, alpha(@window_fg_color, 0.04), transparent);
-    border: 1px solid alpha(@window_fg_color, 0.1);
-    border-radius: 24px;
-    padding: 20px;
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    box-shadow: 0 4px 8px alpha(black, 0.06);
+    background-color: alpha(@window_fg_color, 0.03);
+    background-image: linear-gradient(145deg, alpha(@window_fg_color, 0.02), transparent);
+    border: 1px solid alpha(@window_fg_color, 0.08);
+    border-radius: 18px;
+    padding: 16px;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 2px 4px alpha(black, 0.03);
 }
 
 .monitor-card:hover {
-    background-color: alpha(@window_fg_color, 0.08);
-    border-color: alpha(@accent_bg_color, 0.5);
-    transform: translateY(-6px) scale(1.03);
-    box-shadow: 0 16px 32px alpha(black, 0.18);
+    background-color: alpha(@window_fg_color, 0.06);
+    border-color: alpha(@accent_bg_color, 0.35);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 16px alpha(black, 0.08);
 }
 
 .monitor-name-label {
-    font-size: 12.5px;
+    font-size: 11px;
     font-weight: 800;
-    letter-spacing: 1px;
+    letter-spacing: 0.5px;
     text-transform: uppercase;
-    color: alpha(@window_fg_color, 0.5);
+    color: alpha(@window_fg_color, 0.45);
 }
 
 .monitor-limit-badge {
-    font-size: 10.5px;
-    font-weight: 900;
+    font-size: 9.5px;
+    font-weight: bold;
     color: @accent_bg_color;
-    background-color: alpha(@accent_bg_color, 0.15);
-    border: 1px solid alpha(@accent_bg_color, 0.3);
-    border-radius: 12px;
-    padding: 4px 10px;
+    background-color: alpha(@accent_bg_color, 0.1);
+    border: 1px solid alpha(@accent_bg_color, 0.2);
+    border-radius: 8px;
+    padding: 2px 6px;
 }
 
 .monitor-limit-badge.bottleneck {
@@ -203,43 +197,42 @@ window.ryzenadj-win {
 }
 
 .monitor-value-label {
-    font-size: 32px;
+    font-size: 24px;
     font-weight: 900;
     color: @accent_bg_color;
     font-variant-numeric: tabular-nums;
-    letter-spacing: -1.5px;
 }
 
 .monitor-unit-label {
-    font-size: 15px;
-    font-weight: 800;
+    font-size: 12px;
+    font-weight: bold;
     color: alpha(@window_fg_color, 0.4);
-    margin-bottom: 6px;
+    margin-bottom: 3px;
 }
 
 .monitor-icon {
     color: alpha(@window_fg_color, 0.4);
-    margin-right: 10px;
-    -gtk-icon-size: 18px;
+    margin-right: 6px;
+    -gtk-icon-size: 16px;
 }
 
 /* ─── Usage level bars (Ultra-Soft Style) ────────────────── */
 progressbar.usage-bar {
-    min-height: 10px;
-    margin-top: 12px;
+    min-height: 8px;
+    margin-top: 8px;
     margin-bottom: 4px;
 }
 
 progressbar.usage-bar trough {
-    border-radius: 5px;
-    background-color: alpha(@window_fg_color, 0.08);
-    min-height: 10px;
+    border-radius: 4px;
+    background-color: alpha(@window_fg_color, 0.06);
+    min-height: 8px;
     border: none;
 }
 
 progressbar.usage-bar progress {
-    border-radius: 5px;
-    min-height: 10px;
+    border-radius: 4px;
+    min-height: 8px;
     border: none;
     transition: background-color 0.4s ease;
 }
@@ -378,24 +371,23 @@ progressbar.usage-bar.bottleneck progress {
 }
 
 .navigation-sidebar row {
-    border-radius: 14px;
-    margin: 4px 12px;
-    padding: 14px 20px;
+    border-radius: 10px;
+    margin: 2px 8px;
+    padding: 8px 12px;
     transition: all 0.2s ease;
 }
 
 .navigation-sidebar row image {
-    -gtk-icon-size: 24px;
-    margin-right: 18px;
+    -gtk-icon-size: 20px;
+    margin-right: 10px;
     color: inherit;
     opacity: 0.7;
     transition: all 0.2s ease;
 }
 
 .navigation-sidebar row label {
-    font-size: 17px;
-    font-weight: 800;
-    letter-spacing: -0.3px;
+    font-size: 14px;
+    font-weight: 700;
     transition: all 0.2s ease;
 }
 
@@ -404,7 +396,7 @@ progressbar.usage-bar.bottleneck progress {
 }
 
 .navigation-sidebar row:selected {
-    background-color: alpha(@accent_bg_color, 0.15);
+    background-color: alpha(@accent_bg_color, 0.12);
     color: @accent_bg_color;
 }
 
