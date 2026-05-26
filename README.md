@@ -4,6 +4,8 @@ GTK4 frontend for ryzenadj. Just lets you change power limits, currents, temps a
 
 I made it for myself because I was tired of typing the same commands over and over.
 
+Powered by [RyzenAdj](https://github.com/flygoat/ryzenadj)
+
 ## What it does
 
 - Dashboard showing current power, current, temps and some clock speeds
@@ -72,8 +74,6 @@ Then launch "Ryzenadj-gtk" from your menu or just run `ryzenadj-gtk`.
 ```bash
 sudo ./uninstall.sh
 ```
-
-Powered by [RyzenAdj](https://github.com/flygoat/ryzenadj)
 
 ## License
 
