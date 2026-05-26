@@ -4,7 +4,7 @@ GTK4 frontend for ryzenadj. Just lets you change power limits, currents, temps a
 
 I made it for myself because I was tired of typing the same commands over and over.
 
-Powered by [RyzenAdj](https://github.com/flygoat/ryzenadj)
+Powered by [RyzenAdj](https://github.com/flygoat/ryzenadj) ❤️
 
 ## What it does
 
