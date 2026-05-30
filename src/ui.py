@@ -1,9 +1,12 @@
 """ui builder"""
 import init_gi
 import gi
-from gi.repository import Gtk, Adw, Gdk, GLib, Pango, GObject
+from gi.repository import Gtk, Adw, Gdk, GLib, GObject, Gio
 import ryzen
 import logging
+import platform
+import subprocess
+import os
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +29,6 @@ def get_cpu_name() -> str:
                     return name.strip()
     except Exception:
         pass
-    import platform
     return platform.processor() or "AMD Ryzen"
 
 
@@ -87,7 +89,6 @@ def build_auth_required_page(app) -> Adw.ToolbarView:
     btn_fix.set_halign(Gtk.Align.CENTER)
 
     def on_fix(_b):
-        import subprocess
         script = """cat << 'INNEREOF' > /etc/sudoers.d/ryzenadj-gtk
 ALL ALL=(ALL) NOPASSWD: /usr/bin/ryzenadj
 ALL ALL=(ALL) NOPASSWD: /usr/local/bin/ryzenadj
@@ -115,7 +116,6 @@ chown root:root /etc/sudoers.d/ryzenadj-gtk"""
     btn_reboot.set_margin_top(8)
 
     def on_reboot(_b):
-        import subprocess
         subprocess.run(["reboot"])
 
     btn_reboot.connect("clicked", on_reboot)
@@ -170,6 +170,19 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
     desc  = meta["desc"]
     lo    = meta["min"]
     hi    = meta["max"]
+
+    # Overdrive GFX clock range detection fallback
+    is_sysfs_fallback = False
+    if param in ("min-gfxclk", "max-gfxclk"):
+        # Check if sysfs-based iGPU clock control is being used
+        if app and hasattr(app, "supported_params"):
+            ryzenadj_native = param in (app.supported_params or set())
+            if not ryzenadj_native and ryzen.is_sysfs_gfx_clk_available():
+                is_sysfs_fallback = True
+                sysfs_range = ryzen.get_sysfs_gfx_clk_hardware_range()
+                lo = sysfs_range[0]
+                hi = sysfs_range[1]
+
     step  = meta["step"]
     div   = meta["display_divisor"]   # how many native units per display unit
     dunit = meta["display_unit"]
@@ -220,7 +233,7 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
         cpu_tag_box.add_css_class("cpu-badge")
         cpu_tag_box.set_valign(Gtk.Align.CENTER)
         
-        cpu_icon = Gtk.Image.new_from_icon_name("utilities-system-monitor-symbolic")
+        cpu_icon = Gtk.Image.new_from_icon_name("system-run-symbolic")
         cpu_icon.set_pixel_size(12)
         cpu_tag_box.append(cpu_icon)
         
@@ -234,6 +247,8 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
     desc_text = desc
     if not is_supported:
         desc_text = f"{desc} <span color='#e01b24' weight='bold' size='small'>(Unsupported on this CPU)</span>"
+    elif is_sysfs_fallback:
+        desc_text = f"{desc} <span color='#30d158' weight='bold' size='small'>(AMDGPU Sysfs Overdrive - fallback)</span>"
 
     desc_label = Gtk.Label(xalign=0)
     desc_label.set_markup(f"<span style='italic' size='small'>{desc_text}</span>")
@@ -266,24 +281,22 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
     else:
         init_val = float(meta.get("default", lo))
 
-    # Allow 0.5 unit increments if requested via buttons, but keep slider step sane
-    # We reduce the adjustment step to 0.5 units to allow finer keyboard control too
-    calc_step = max(0.5 * div, 1.0)
-    if step < calc_step:
-        calc_step = step
+    # Step is exactly 1 display unit so the slider only lands on whole numbers.
+    calc_step = float(max(int(div), 1))
 
     adj = Gtk.Adjustment(
         value=init_val,
         lower=lo,
         upper=hi,
         step_increment=calc_step,
-        page_increment=step * 10,
+        page_increment=calc_step * 10,
         page_size=0,
     )
     slider = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adj)
     slider.set_hexpand(True)
     slider.set_valign(Gtk.Align.CENTER)
     slider.set_draw_value(False)
+    slider.set_round_digits(0)  # snap to whole native units → whole display units
     slider.set_tooltip_text(f"Range: {lo} – {hi} {meta['unit']}")
 
     # Disable scroll wheel on slider to prevent accidental changes
@@ -300,31 +313,72 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
     btn_remove.set_margin_start(4)
 
     def on_remove(_b, p=param, m=meta, c_cli=cur_cli, sli=slider, l=lo):
-        ok, msg = ryzen.remove_setting_from_startup(p)
+        is_gfx = p in ("min-gfxclk", "max-gfxclk", "gfx-clk")
+        params_to_remove = ["min-gfxclk", "max-gfxclk", "gfx-clk"] if is_gfx else [p]
+
+        was_configured = False
+        if app:
+            was_configured = any(
+                x in getattr(app, "pending_settings", {}) or x in getattr(app, "applied_settings", {})
+                for x in params_to_remove
+            )
+
+        ok = True
+        err_msg = ""
+        for x in params_to_remove:
+            success, msg = ryzen.remove_setting_from_startup(x)
+            if not success:
+                ok = False
+                err_msg = msg
+
         if ok:
             if app:
-                if p in getattr(app, 'pending_settings', {}):
-                    del app.pending_settings[p]
-                if p in getattr(app, 'applied_settings', {}):
-                    del app.applied_settings[p]
+                for x in params_to_remove:
+                    if x in getattr(app, "pending_settings", {}):
+                        del app.pending_settings[x]
+                    if x in getattr(app, "applied_settings", {}):
+                        del app.applied_settings[x]
+                if is_gfx and was_configured:
+                    app.gfx_reboot_required = True
 
-            # Reset slider toward live value if available
-            row._updating_programmatically = True
-            if c_cli is not None:
-                sli.set_value(c_cli)
-            else:
-                sli.set_value(float(m.get("default", l)))
-            row._updating_programmatically = False
-            
-            # Update label to Auto
-            target_badge.set_text("Target: Auto")
+            # Reset sliders and update badges for all affected parameters
+            for x in params_to_remove:
+                row_widget = app._slider_rows.get(x) if app else None
+                if row_widget:
+                    sli_widget = getattr(row_widget, "_slider", None)
+                    meta_widget = getattr(row_widget, "_param_meta", None)
+                    if sli_widget and meta_widget:
+                        c_cli_widget = None
+                        vkey = meta_widget["value_key"]
+                        cur_raw = app.current_info.get(vkey) if app else None
+                        if cur_raw is not None:
+                            c_cli_widget = cur_raw * meta_widget["display_divisor"]
+
+                        row_widget._updating_programmatically = True
+                        if c_cli_widget is not None:
+                            sli_widget.set_value(c_cli_widget)
+                        else:
+                            sli_widget.set_value(float(meta_widget.get("default", meta_widget["min"])))
+                        row_widget._updating_programmatically = False
+
+                        if hasattr(row_widget, "_update_val_label"):
+                            row_widget._update_val_label(sli_widget, False)
+
+            if app and hasattr(app, "_update_gfx_clock_conflict_status"):
+                app._update_gfx_clock_conflict_status()
 
             # Offer reboot dialog (consistent with factory reset / hard gates)
             if app and app.win:
+                heading = "Graphics Clock Overrides Cleared" if is_gfx else "Setting Removed from Startup"
+                body = (
+                    "All graphics clock options have been cleared from startup settings.\n\nA reboot is recommended to fully return the graphics system to stock firmware behavior."
+                    if is_gfx
+                    else f"{msg}\n\nA reboot is recommended to fully clear this setting from hardware."
+                )
                 reboot_dialog = Adw.MessageDialog(
                     transient_for=app.win,
-                    heading="Setting Removed from Startup",
-                    body=f"{msg}\n\nA reboot is recommended to fully clear this setting from hardware."
+                    heading=heading,
+                    body=body,
                 )
                 reboot_dialog.add_response("later", "Later")
                 reboot_dialog.add_response("reboot", "Reboot Now")
@@ -333,7 +387,6 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
 
                 def on_reboot_response(d, response):
                     if response == "reboot":
-                        import os
                         os.system("reboot")
 
                 reboot_dialog.connect("response", on_reboot_response)
@@ -352,32 +405,46 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
     main_box.append(top_box)
 
     # ── Bottom Row Layout ──
-    bottom_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    bottom_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
     bottom_box.set_margin_top(10)
-    
-    # Minus Button
+
+    unit_label = dunit if dunit else meta["unit"]
+
+    def adjust_slider(direction: int, steps: int):
+        delta = max(int(div), 1) * steps
+        slider.set_value(max(lo, min(hi, slider.get_value() + direction * delta)))
+
+    # ── Step buttons helper ──
+    def make_step_btn(label: str, direction: int, steps: int, tooltip: str) -> Gtk.Button:
+        b = Gtk.Button(label=label)
+        b.add_css_class("step-btn")
+        b.set_tooltip_text(tooltip)
+        b.set_valign(Gtk.Align.CENTER)
+        b.connect("clicked", lambda _b: adjust_slider(direction, steps))
+        return b
+
+    # ±1 icon buttons
     btn_minus = Gtk.Button(icon_name="list-remove-symbolic")
     btn_minus.add_css_class("circular")
     btn_minus.add_css_class("flat")
     btn_minus.add_css_class("adj-btn")
-    btn_minus.set_tooltip_text(f"Decrease by 0.5 {dunit}")
-    
-    # Plus Button
+    btn_minus.set_tooltip_text(f"−1 {unit_label}")
+    btn_minus.set_valign(Gtk.Align.CENTER)
+    btn_minus.connect("clicked", lambda _b: adjust_slider(-1, 1))
+
     btn_plus = Gtk.Button(icon_name="list-add-symbolic")
     btn_plus.add_css_class("circular")
     btn_plus.add_css_class("flat")
     btn_plus.add_css_class("adj-btn")
-    btn_plus.set_tooltip_text(f"Increase by 0.5 {dunit}")
+    btn_plus.set_tooltip_text(f"+1 {unit_label}")
+    btn_plus.set_valign(Gtk.Align.CENTER)
+    btn_plus.connect("clicked", lambda _b: adjust_slider(1, 1))
 
-    def on_adj_clicked(_btn, direction):
-        delta = 0.5 * div
-        if delta < 1.0:
-            delta = 1.0
-        new_val = slider.get_value() + (direction * delta)
-        slider.set_value(max(lo, min(hi, new_val)))
-
-    btn_minus.connect("clicked", on_adj_clicked, -1)
-    btn_plus.connect("clicked", on_adj_clicked, 1)
+    # ±10 / ±100 step buttons
+    btn_minus_100 = make_step_btn("−100", -1, 100, f"−100 {unit_label}")
+    btn_minus_10  = make_step_btn("−10",  -1,  10, f"−10 {unit_label}")
+    btn_plus_10   = make_step_btn("+10",   1,  10, f"+10 {unit_label}")
+    btn_plus_100  = make_step_btn("+100",  1, 100, f"+100 {unit_label}")
 
     # Target badge
     target_badge = Gtk.Label()
@@ -390,23 +457,28 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
     def update_val_label(scale, user_triggered=False):
         if getattr(row, "_updating_programmatically", False):
             return
-            
         v = scale.get_value()
-        # If it's already in pending, we update it. 
-        # If it's not in pending, we only add it if the user triggered the change.
         if user_triggered or param in pending:
             target_badge.set_text(f"Target: {_fmt(v, div, dunit)}")
             pending[param] = int(v)
         else:
             target_badge.set_text("Target: Auto")
 
+        if app and hasattr(app, "_update_gfx_clock_conflict_status"):
+            app._update_gfx_clock_conflict_status()
+
     slider.connect("value-changed", lambda s: update_val_label(s, True))
     row._update_val_label = update_val_label
     update_val_label(slider, False)  # set initial text
 
+    # Layout: [−100] [−10] [−] ──slider── [+] [+10] [+100]  [badge]
+    bottom_box.append(btn_minus_100)
+    bottom_box.append(btn_minus_10)
     bottom_box.append(btn_minus)
     bottom_box.append(slider)
     bottom_box.append(btn_plus)
+    bottom_box.append(btn_plus_10)
+    bottom_box.append(btn_plus_100)
     bottom_box.append(target_badge)
     
     main_box.append(bottom_box)
@@ -608,7 +680,7 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     center_content.set_hexpand(True)
     center_content.set_halign(Gtk.Align.CENTER)
 
-    hero_icon = Gtk.Image.new_from_icon_name("utilities-system-monitor-symbolic")
+    hero_icon = Gtk.Image.new_from_icon_name("system-run-symbolic")
     hero_icon.set_pixel_size(48)
     hero_icon.add_css_class("hero-icon")
     center_content.append(hero_icon)
@@ -688,21 +760,21 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     main_box.append(grp_current)
 
     # ── Thermal Status Section ──
-    main_box.append(_build_section_header("Thermal Status", "sensors-temperature-symbolic"))
+    main_box.append(_build_section_header("Thermal Status", "display-brightness-symbolic"))
 
     grp_thermal = Adw.PreferencesGroup()
     grp_thermal.add_css_class("dashboard-group")
 
     thermal_flow = _make_card_grid(app, [
-        ("THM VALUE CORE", "THM LIMIT CORE", "CPU Die",       "°C", "sensors-temperature-symbolic"),
-        ("STT VALUE APU",  "STT LIMIT APU",  "APU Skin",      "°C", "sensors-temperature-symbolic"),
-        ("STT VALUE dGPU", "STT LIMIT dGPU", "dGPU Skin",     "°C", "sensors-temperature-symbolic"),
+        ("THM VALUE CORE", "THM LIMIT CORE", "CPU Die",       "°C", "display-brightness-symbolic"),
+        ("STT VALUE APU",  "STT LIMIT APU",  "APU Skin",      "°C", "display-brightness-symbolic"),
+        ("STT VALUE dGPU", "STT LIMIT dGPU", "dGPU Skin",     "°C", "display-brightness-symbolic"),
     ])
     grp_thermal.add(thermal_flow)
     main_box.append(grp_thermal)
 
     # ── Power Automation Section ──
-    main_box.append(_build_section_header("Power Automation", "battery-action-symbolic"))
+    main_box.append(_build_section_header("Power Automation", "battery-symbolic"))
 
     grp_automation = Adw.PreferencesGroup()
     grp_automation.set_description("Automatically swap profiles based on power supply charging state")
@@ -710,14 +782,14 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     switch_auto = Adw.SwitchRow()
     switch_auto.set_title("Auto-switch profiles on power change")
     switch_auto.set_subtitle("Automatically switch profiles when AC charger is plugged in or disconnected")
-    switch_auto.set_icon_name("battery-action-symbolic")
+    switch_auto.set_icon_name("media-playlist-shuffle-symbolic")
     switch_auto.set_active(app.ui_settings.get("auto_switch", False))
     grp_automation.add(switch_auto)
 
     ac_row = Adw.ComboRow()
     ac_row.set_title("Plugged into AC Power")
     ac_row.set_subtitle("Profile applied when connected to charger")
-    ac_row.set_icon_name("battery-charging-symbolic")
+    ac_row.set_icon_name("battery-full-charging-symbolic")
     grp_automation.add(ac_row)
 
     bat_row = Adw.ComboRow()
@@ -792,7 +864,7 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     bat_row.set_sensitive(app.ui_settings.get("auto_switch", False))
 
     # ── Persistence Guard Section ──
-    main_box.append(_build_section_header("Persistence Guard", "security-high-symbolic"))
+    main_box.append(_build_section_header("Persistence Guard", "system-lock-screen-symbolic"))
 
     grp_persistence = Adw.PreferencesGroup()
     grp_persistence.set_description("Periodically verify and re-apply settings to counter thermal or system power overrides")
@@ -851,7 +923,7 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     persist_interval_row.set_sensitive(app.ui_settings.get("persistence_enabled", False))
 
     # ── Service & Tuning group ──
-    main_box.append(_build_section_header("System and Tuning", "settings-symbolic"))
+    main_box.append(_build_section_header("System and Tuning", "preferences-system-symbolic"))
 
     grp_service = Adw.PreferencesGroup()
     grp_service.set_description("Manage boot persistence and extreme tuning bounds")
@@ -938,19 +1010,13 @@ def _build_slider_page(
         if grp_desc:
             grp.set_description(grp_desc)
 
-        # Special conditional handling for power page timing limits
-        if name == "power" and grp_title == "Time Constants":
-            app.timing_preferences_group = grp
-            app.timing_preferences_header = header_box
-            grp.set_visible(app.enthusiast_mode)
-            header_box.set_visible(app.enthusiast_mode)
-
         for meta in param_list:
-            is_supported = True
             param = meta["param"]
-            is_co = param.startswith("set-co")
-            if not is_co and hasattr(app, "supported_params"):
-                is_supported = param in app.supported_params
+            is_supported = ryzen.is_parameter_supported(
+                param,
+                getattr(app, "cpu_family", "Unknown"),
+                getattr(app, "supported_params", set()),
+            )
 
             row = _build_slider_row(meta, app.current_info, app.pending_settings, app, is_supported)
             grp.add(row)
@@ -1068,7 +1134,16 @@ def _build_profiles_page(app) -> Gtk.ScrolledWindow:
                             slider = getattr(row_widget, "_slider", None)
                             if slider:
                                 slider.set_value(float(val))
-                    app.on_apply_clicked(None)
+                    # Apply directly — no need to re-confirm since the user
+                    # already clicked Apply on an explicitly named profile card.
+                    diff_settings = {
+                        k: v for k, v in p_settings.items()
+                        if app.applied_settings.get(k) != v
+                    }
+                    if diff_settings:
+                        app._execute_apply(diff_settings)
+                    else:
+                        app._show_toast(f"Profile '{p_name}' is already applied.", is_error=False)
                 return on_apply
 
             def make_on_delete(p_name):
@@ -1150,7 +1225,7 @@ def build_main_window(app) -> Adw.ApplicationWindow:
     # Profiles
     profiles_page = _build_profiles_page(app)
     view_stack.add_titled_with_icon(
-        profiles_page, "profiles", "Profiles", "bookmarks-symbolic"
+        profiles_page, "profiles", "Profiles", "user-bookmarks-symbolic"
     )
 
     # Power
@@ -1160,7 +1235,7 @@ def build_main_window(app) -> Adw.ApplicationWindow:
         app, "Power", "battery-symbolic", "power",
         [
             ("Power Limits", "STAPM and PPT power envelope — values in mW, shown in W", power_params),
-            ("Time Constants", "STAPM and Slow PPT averaging windows (seconds) — (Enthusiast Mode Only)", timing_params)
+            ("Time Constants", "STAPM and Slow PPT averaging windows (seconds)", timing_params)
         ]
     )
     view_stack.add_titled_with_icon(
@@ -1190,11 +1265,11 @@ def build_main_window(app) -> Adw.ApplicationWindow:
     # Thermal
     thermal_params = [m for m in ryzen.SETTINGS_PARAMS if m["category"] == "thermal"]
     thermal_page = _build_slider_page(
-        app, "Thermal", "sensors-temperature-symbolic", "thermal",
+        app, "Thermal", "display-brightness-symbolic", "thermal",
         [("Temperature Limits", "CPU and skin temperature ceilings (°C)", thermal_params)]
     )
     view_stack.add_titled_with_icon(
-        thermal_page, "thermal", "Thermal", "sensors-temperature-symbolic"
+        thermal_page, "thermal", "Thermal", "display-brightness-symbolic"
     )
 
     # Undervolt
@@ -1210,7 +1285,7 @@ def build_main_window(app) -> Adw.ApplicationWindow:
         ]
     )
     view_stack.add_titled_with_icon(
-        undervolt_page, "undervolt", "Undervolt", "cpu-symbolic"
+        undervolt_page, "undervolt", "Undervolt", "computer-symbolic"
     )
 
 
@@ -1322,7 +1397,6 @@ def build_main_window(app) -> Adw.ApplicationWindow:
     app.toast_overlay = toast_overlay
 
     # ── App menu ────────────────────────────────────────────────
-    from gi.repository import Gio
     gmenu = Gio.Menu.new()
     
     # Theme Menu

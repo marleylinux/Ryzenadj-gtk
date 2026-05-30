@@ -1,6 +1,7 @@
 """main app"""
 import sys
 import os
+import json
 import logging
 import threading
 import init_gi
@@ -17,7 +18,7 @@ log = logging.getLogger(__name__)
 
 APP_ID    = "com.marley.ryzenadj-gtk"
 APP_NAME  = "Ryzenadj-gtk"
-APP_VER   = "1.5.0"
+APP_VER   = "1.6.0"
 REFRESH_INTERVAL_MS = 1000  # 1 s auto-refresh
 
 
@@ -37,7 +38,6 @@ class RyzenadjApp(Adw.Application):
         self.cpu_family: str = "Ryzen Processor"
         self._refresh_timer_id: int | None = None
         self._refreshing: bool = False
-        self.enthusiast_mode: bool = False
         self.applied_settings: dict = {}
         self.supported_params: set = set()
         self._initial_load_error: str | None = None
@@ -47,7 +47,8 @@ class RyzenadjApp(Adw.Application):
             "ac_profile": "",
             "battery_profile": "",
             "persistence_enabled": False,
-            "persistence_interval": 30
+            "persistence_interval": 30,
+            "enthusiast_mode": False
         }
         self._persistence_ticks: int = 0
         self.last_ac_state: bool | None = None
@@ -55,10 +56,11 @@ class RyzenadjApp(Adw.Application):
         self.btn_refresh = None          # set by build_main_window
         self.window_title = None         # set by build_main_window
         self._auth_granted: bool | None = None  # None=pending, True=ok, False=denied
+        self.gfx_reboot_required = False
         self._load_ui_settings()
+        self.enthusiast_mode = self.ui_settings.get("enthusiast_mode", False)
 
     def _load_ui_settings(self):
-        import json
         self.ui_config_path = os.path.expanduser("~/.config/ryzenadj-gtk/ui.json")
         if os.path.exists(self.ui_config_path):
             try:
@@ -68,8 +70,6 @@ class RyzenadjApp(Adw.Application):
                 log.warning("Failed to load UI settings: %s", e)
 
     def _save_ui_settings(self):
-        import json
-        import os
         try:
             os.makedirs(os.path.dirname(self.ui_config_path), exist_ok=True)
             with open(self.ui_config_path, "w") as f:
@@ -230,11 +230,17 @@ class RyzenadjApp(Adw.Application):
             desc_text = meta["desc"]
             if not is_supported:
                 desc_text = f"{desc_text} <span color='#e01b24' weight='bold' size='small'>(Unsupported on this CPU)</span>"
+            else:
+                if param in ("min-gfxclk", "max-gfxclk"):
+                    ryzenadj_native = param in (self.supported_params or set())
+                    if not ryzenadj_native and ryzen.is_sysfs_gfx_clk_available():
+                        desc_text = f"{desc_text} <span color='#30d158' weight='bold' size='small'>(AMDGPU Sysfs Overdrive - fallback)</span>"
             desc_label.set_markup(f"<span style='italic' size='small'>{desc_text}</span>")
 
         # Initial synchronization of sliders to match saved settings or actual CPU values
         self._sync_sliders_to_hardware_or_pending(info, use_pending=True)
         self.applied_settings = dict(self.pending_settings)
+        self._update_gfx_clock_conflict_status()
 
         # Hide dashboard cards for unsupported metrics
         for card in self._dashboard_cards:
@@ -443,11 +449,11 @@ class RyzenadjApp(Adw.Application):
             ok, msg = ryzen.apply_settings(self.applied_settings, self.supported_params, self.cpu_family)
             if ok:
                 log.info("Successfully restored hardware registers after system sleep.")
-                self._show_toast("Hardware settings automatically restored after sleep.", is_error=False)
+                GLib.idle_add(self._show_toast, "Hardware settings automatically restored after sleep.", False)
             else:
                 log.error("Failed to restore hardware registers: %s", msg)
-                self._show_toast("Failed to restore hardware settings after sleep.", is_error=True)
-                
+                GLib.idle_add(self._show_toast, "Failed to restore hardware settings after sleep.", True)
+
         threading.Thread(target=reapply, daemon=True).start()
         return False
 
@@ -540,6 +546,7 @@ class RyzenadjApp(Adw.Application):
         self._update_dashboard_cards()
         self._update_slider_badges()
         self._update_status_label()
+        self._update_gfx_clock_conflict_status()
         return False  # GLib.idle_add
 
     def _update_dashboard_cards(self) -> None:
@@ -699,18 +706,31 @@ class RyzenadjApp(Adw.Application):
             return
         active = switch_row.get_active()
         if active != ryzen.is_service_enabled():
+            # Disable switch row to prevent rapid spamming of systemd commands
+            switch_row.set_sensitive(False)
+
             def run_toggle():
+                import time
+                start_time = time.time()
                 ok, msg = ryzen.set_service_enabled(active)
-                GLib.idle_add(self._on_startup_toggle_done, ok, msg, active)
+
+                # Apply a brief 1.5-second cooldown to protect logind
+                elapsed = time.time() - start_time
+                cooldown = 1.5
+                if elapsed < cooldown:
+                    time.sleep(cooldown - elapsed)
+
+                GLib.idle_add(self._on_startup_toggle_done, ok, msg, active, switch_row)
             threading.Thread(target=run_toggle, daemon=True).start()
 
-    def _on_startup_toggle_done(self, ok: bool, msg: str, active: bool) -> bool:
+    def _on_startup_toggle_done(self, ok: bool, msg: str, active: bool, switch_row) -> bool:
         self._show_toast(msg, is_error=not ok)
         if not ok:
             self._setting_service_switch = True
-            if hasattr(self, "switch_startup"):
-                self.switch_startup.set_active(not active)
+            switch_row.set_active(not active)
             self._setting_service_switch = False
+        # Re-enable switch after cooldown completes
+        switch_row.set_sensitive(True)
         return False
 
     # ── Factory Reset ──────────────────────────────────────────────────────────
@@ -737,6 +757,10 @@ class RyzenadjApp(Adw.Application):
     def _execute_factory_reset(self) -> None:
         ok, msg = ryzen.factory_reset()
         if ok:
+            self.pending_settings.clear()
+            self.applied_settings.clear()
+            self.gfx_reboot_required = True
+
             # Show a final confirmation to reboot now
             reboot_dialog = Adw.MessageDialog(
                 transient_for=self.win,
@@ -753,8 +777,6 @@ class RyzenadjApp(Adw.Application):
                     os.system("reboot")
                 else:
                     # Reset state and refresh UI instead of quitting
-                    self.pending_settings.clear()
-                    self.applied_settings.clear()
                     self.on_refresh_clicked(None)
 
             reboot_dialog.connect("response", on_reboot_response)
@@ -769,6 +791,8 @@ class RyzenadjApp(Adw.Application):
         if self.enthusiast_mode == active:
             return
         self.enthusiast_mode = active
+        self.ui_settings["enthusiast_mode"] = active
+        self._save_ui_settings()
         
         # Extended limits definitions
         power_standard_max = 130000
@@ -806,16 +830,78 @@ class RyzenadjApp(Adw.Application):
                 # Trigger callback to update target badge display with new bound
                 slider.emit("value-changed")
 
-        # Toggle Power Page Timing Constant groups dynamically
-        if hasattr(self, "timing_preferences_group") and self.timing_preferences_group:
-            self.timing_preferences_group.set_visible(active)
-        if hasattr(self, "timing_preferences_header") and self.timing_preferences_header:
-            self.timing_preferences_header.set_visible(active)
+
 
         if active:
             self._show_toast("Enthusiast Mode: Extreme limits unlocked up to 250W!", is_error=False)
         else:
             self._show_toast("Enthusiast Mode: Reset ranges back to standard bounds.", is_error=False)
+
+    def _update_gfx_clock_conflict_status(self) -> None:
+        """Dynamically handle mutually exclusive conflicts between min/max-gfxclk and gfx-clk."""
+        if getattr(self, "gfx_reboot_required", False):
+            # If a GFX setting was removed and needs a reboot, lock both to prevent hardware conflicts
+            for param in ("min-gfxclk", "max-gfxclk", "gfx-clk"):
+                row = self._slider_rows.get(param)
+                if not row:
+                    continue
+                meta = getattr(row, "_param_meta", None)
+                desc_label = getattr(row, "_desc_label", None)
+                if not meta or not desc_label:
+                    continue
+
+                # Check base hardware support
+                hw_supported = ryzen.is_parameter_supported(param, self.cpu_family, self.supported_params)
+                if not hw_supported:
+                    row.set_sensitive(False)
+                    desc_label.set_markup(f"<span style='italic' size='small'>{meta['desc']} <span color='#e01b24' weight='bold' size='small'>(Unsupported on this CPU)</span></span>")
+                    continue
+
+                row.set_sensitive(False)
+                desc_label.set_markup(f"<span style='italic' size='small'>{meta['desc']} <span color='#e01b24' weight='bold' size='small'>(Unsupported: reboot required to clear GFX conflicts)</span></span>")
+            return
+
+        has_min_max = ("min-gfxclk" in self.pending_settings) or ("max-gfxclk" in self.pending_settings)
+        has_forced = "gfx-clk" in self.pending_settings
+
+        for param in ("min-gfxclk", "max-gfxclk", "gfx-clk"):
+            row = self._slider_rows.get(param)
+            if not row:
+                continue
+            meta = getattr(row, "_param_meta", None)
+            desc_label = getattr(row, "_desc_label", None)
+            if not meta or not desc_label:
+                continue
+
+            # 1. Base hardware support check
+            hw_supported = ryzen.is_parameter_supported(param, self.cpu_family, self.supported_params)
+
+            if not hw_supported:
+                row.set_sensitive(False)
+                desc_label.set_markup(f"<span style='italic' size='small'>{meta['desc']} <span color='#e01b24' weight='bold' size='small'>(Unsupported on this CPU)</span></span>")
+                continue
+
+            # 2. Check for dynamic conflict
+            is_conflicted = False
+            conflict_msg = ""
+            if param in ("min-gfxclk", "max-gfxclk") and has_forced:
+                is_conflicted = True
+                conflict_msg = "conflicts with Forced iGPU Clock"
+            elif param == "gfx-clk" and has_min_max:
+                is_conflicted = True
+                conflict_msg = "conflicts with min/max iGPU Clock"
+
+            if is_conflicted:
+                row.set_sensitive(False)
+                desc_label.set_markup(f"<span style='italic' size='small'>{meta['desc']} <span color='#e01b24' weight='bold' size='small'>(Unsupported: {conflict_msg})</span></span>")
+            else:
+                row.set_sensitive(True)
+                desc_text = meta["desc"]
+                if param in ("min-gfxclk", "max-gfxclk"):
+                    ryzenadj_native = param in (self.supported_params or set())
+                    if not ryzenadj_native and ryzen.is_sysfs_gfx_clk_available():
+                        desc_text = f"{desc_text} <span color='#30d158' weight='bold' size='small'>(AMDGPU Sysfs Overdrive - fallback)</span>"
+                desc_label.set_markup(f"<span style='italic' size='small'>{desc_text}</span>")
 
     # ── Toast ──────────────────────────────────────────────────────────────────
 

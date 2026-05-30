@@ -4,6 +4,8 @@ import json
 import os
 import re
 import logging
+import threading
+import shutil
 
 CONFIG_FILE = os.path.expanduser("~/.config/ryzenadj-gtk/settings.json")
 PROFILES_FILE = os.path.expanduser("~/.config/ryzenadj-gtk/profiles.json")
@@ -12,9 +14,6 @@ SYSTEM_CONFIG_FILE = "/etc/ryzenadj-gtk/settings.json"
 SUDOERS_DROP_IN = "/etc/sudoers.d/ryzenadj-gtk"
 
 log = logging.getLogger(__name__)
-
-import threading
-import shutil
 
 _hardware_lock = threading.Lock()
 
@@ -28,36 +27,6 @@ def _run_elevated(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     with _hardware_lock:
         return subprocess.run(sudo_cmd, **kwargs)
 
-# Mapping from ryzenadj -i output Name -> parameter name used in CLI
-# Also includes unit and display metadata
-METRIC_MAP = {
-    "STAPM LIMIT":         {"param": "stapm-limit",        "unit": "mW",  "scale": 1000, "category": "power"},
-    "STAPM VALUE":         {"param": None,                  "unit": "W",   "scale": 1,    "category": "power"},
-    "PPT LIMIT FAST":      {"param": "fast-limit",         "unit": "mW",  "scale": 1000, "category": "power"},
-    "PPT VALUE FAST":      {"param": None,                  "unit": "W",   "scale": 1,    "category": "power"},
-    "PPT LIMIT SLOW":      {"param": "slow-limit",         "unit": "mW",  "scale": 1000, "category": "power"},
-    "PPT VALUE SLOW":      {"param": None,                  "unit": "W",   "scale": 1,    "category": "power"},
-    "PPT LIMIT APU":       {"param": "apu-slow-limit",     "unit": "mW",  "scale": 1000, "category": "power"},
-    "PPT VALUE APU":       {"param": None,                  "unit": "W",   "scale": 1,    "category": "power"},
-    "TDC LIMIT VDD":       {"param": "vrm-current",        "unit": "A",   "scale": 1000, "category": "current"},
-    "TDC VALUE VDD":       {"param": None,                  "unit": "A",   "scale": 1,    "category": "current"},
-    "TDC LIMIT SOC":       {"param": "vrmsoc-current",     "unit": "A",   "scale": 1000, "category": "current"},
-    "TDC VALUE SOC":       {"param": None,                  "unit": "A",   "scale": 1,    "category": "current"},
-    "EDC LIMIT VDD":       {"param": "vrmmax-current",     "unit": "A",   "scale": 1000, "category": "current"},
-    "EDC VALUE VDD":       {"param": None,                  "unit": "A",   "scale": 1,    "category": "current"},
-    "EDC LIMIT SOC":       {"param": "vrmsocmax-current",  "unit": "A",   "scale": 1000, "category": "current"},
-    "EDC VALUE SOC":       {"param": None,                  "unit": "A",   "scale": 1,    "category": "current"},
-    "THM LIMIT CORE":      {"param": "tctl-temp",          "unit": "°C",  "scale": 1,    "category": "thermal"},
-    "THM VALUE CORE":      {"param": None,                  "unit": "°C",  "scale": 1,    "category": "thermal"},
-    "STT LIMIT APU":       {"param": "apu-skin-temp",      "unit": "°C",  "scale": 1,    "category": "thermal"},
-    "STT VALUE APU":       {"param": None,                  "unit": "°C",  "scale": 1,    "category": "thermal"},
-    "STT LIMIT dGPU":      {"param": "dgpu-skin-temp",     "unit": "°C",  "scale": 1,    "category": "thermal"},
-    "STT VALUE dGPU":      {"param": None,                  "unit": "°C",  "scale": 1,    "category": "thermal"},
-    "StapmTimeConst":      {"param": "stapm-time",         "unit": "s",   "scale": 1,    "category": "timing"},
-    "SlowPPTTimeConst":    {"param": "slow-time",          "unit": "s",   "scale": 1,    "category": "timing"},
-    "CCLK Boost SETPOINT": {"param": None,                  "unit": "",    "scale": 1,    "category": "info"},
-    "CCLK BUSY VALUE":     {"param": None,                  "unit": "",    "scale": 1,    "category": "info"},
-}
 
 # Settable parameters with UI metadata
 SETTINGS_PARAMS = [
@@ -436,19 +405,7 @@ for i in range(_get_physical_core_count()):
     })
 
 
-# Read-only monitoring metrics (name in -i output -> display label)
-MONITOR_METRICS = [
-    ("STAPM VALUE",   "STAPM Usage",    "W"),
-    ("PPT VALUE FAST","PPT Fast Usage", "W"),
-    ("PPT VALUE SLOW","PPT Slow Usage", "W"),
-    ("PPT VALUE APU", "APU PPT Usage",  "W"),
-    ("TDC VALUE VDD", "TDC VDD",        "A"),
-    ("TDC VALUE SOC", "TDC SoC",        "A"),
-    ("EDC VALUE VDD", "EDC VDD",        "A"),
-    ("EDC VALUE SOC", "EDC SoC",        "A"),
-    ("THM VALUE CORE","CPU Temp",       "°C"),
-    ("STT VALUE APU", "APU Skin Temp",  "°C"),
-]
+
 
 
 def get_live_gpu_clock() -> float | None:
@@ -517,6 +474,160 @@ def get_live_cpu_clock() -> float | None:
     return None
 
 
+# ── sysfs GFX clock control (LACT-style fallback) ────────────────────────────
+
+def _find_amdgpu_od_card() -> str | None:
+    """Return the /sys/class/drm/cardN/device path for the first AMD card that
+    exposes pp_od_clk_voltage (overdrive clock table). Returns None if not found.
+    """
+    for i in range(4):
+        base = f"/sys/class/drm/card{i}/device"
+        if os.path.exists(f"{base}/pp_od_clk_voltage"):
+            return base
+    return None
+
+
+def is_sysfs_gfx_clk_available() -> bool:
+    """Return True if sysfs-based iGPU clock control is available on this system."""
+    return _find_amdgpu_od_card() is not None
+
+
+def get_sysfs_gfx_clk_hardware_range() -> tuple[int, int]:
+    """Read the hardware-supported min and max graphics clock boundaries from pp_od_clk_voltage.
+
+    Returns (min_bound, max_bound). Defaults to (200, 2700) as safe standard limits if unparseable.
+    """
+    base = _find_amdgpu_od_card()
+    default_range = (200, 2700)
+    if not base:
+        return default_range
+    try:
+        with open(f"{base}/pp_od_clk_voltage", "r") as f:
+            content = f.read()
+        in_range = False
+        for line in content.splitlines():
+            line = line.strip()
+            if line == "OD_RANGE:":
+                in_range = True
+                continue
+            if line.startswith("OD_") and line != "OD_RANGE:":
+                in_range = False
+            if in_range:
+                # Format: "SCLK:        200Mhz       2700Mhz"
+                if line.startswith("SCLK:"):
+                    parts = re.findall(r"(\d+)[Mm][Hh]z", line)
+                    if len(parts) >= 2:
+                        return int(parts[0]), int(parts[1])
+        return default_range
+    except Exception as e:
+        log.debug("Failed to read sysfs GFX hardware range: %s", e)
+        return default_range
+
+
+def get_sysfs_gfx_clk_limits() -> tuple[float | None, float | None]:
+    """Read the currently programmed min/max iGPU clock limits from pp_od_clk_voltage.
+
+    Returns (min_mhz, max_mhz); either value may be None if unreadable.
+    """
+    base = _find_amdgpu_od_card()
+    if not base:
+        return None, None
+    try:
+        with open(f"{base}/pp_od_clk_voltage", "r") as f:
+            content = f.read()
+        min_mhz: float | None = None
+        max_mhz: float | None = None
+        in_sclk = False
+        for line in content.splitlines():
+            line = line.strip()
+            if line == "OD_SCLK:":
+                in_sclk = True
+                continue
+            if line.startswith("OD_"):
+                in_sclk = False
+            if in_sclk:
+                # Format: "0: 400Mhz 750mV"  or  "0: 400MHz"
+                m = re.match(r"(\d+):\s+(\d+)[Mm][Hh]z", line)
+                if m:
+                    level, mhz = int(m.group(1)), float(m.group(2))
+                    if level == 0:
+                        min_mhz = mhz
+                    elif level == 1:
+                        max_mhz = mhz
+        return min_mhz, max_mhz
+    except Exception as e:
+        log.debug("Failed to read sysfs GFX clock limits: %s", e)
+        return None, None
+
+
+def _sysfs_tee_write(path: str, data: str) -> bool:
+    """Write *data* to a sysfs path using 'sudo -n tee'.
+
+    Requires the tee rule for the target path to be present in
+    /etc/sudoers.d/ryzenadj-gtk (added by install.sh / PKGBUILD).
+    """
+    try:
+        res = subprocess.run(
+            ["sudo", "-n", "tee", path],
+            input=data,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if res.returncode != 0:
+            log.debug("sudo tee %s failed: %s", path, res.stderr.strip())
+        return res.returncode == 0
+    except Exception as e:
+        log.debug("sysfs tee write failed (%s): %s", path, e)
+        return False
+
+
+def apply_gfx_clk_sysfs(
+    min_mhz: int | None,
+    max_mhz: int | None,
+) -> tuple[bool, str]:
+    """Apply iGPU min/max clock limits via sysfs pp_od_clk_voltage.
+
+    This is the LACT-style fallback used when the installed ryzenadj version
+    does not expose --min-gfxclk / --max-gfxclk for this CPU.
+
+    Requires the tee sudoers entries added by the installer.
+    Returns (success, message).
+    """
+    base = _find_amdgpu_od_card()
+    if not base:
+        return False, "No AMD GPU with pp_od_clk_voltage support found in sysfs."
+
+    od_path   = f"{base}/pp_od_clk_voltage"
+    perf_path = f"{base}/power_dpm_force_performance_level"
+
+    # Engage manual performance level so overdrive writes are accepted
+    if not _sysfs_tee_write(perf_path, "manual"):
+        return False, (
+            "Failed to set power_dpm_force_performance_level to 'manual'.\n"
+            "Make sure the tee sudoers rules are installed (re-run install.sh)."
+        )
+
+    if min_mhz is not None:
+        if not _sysfs_tee_write(od_path, f"s 0 {int(min_mhz)}"):
+            return False, f"Failed to write min GFX clock ({int(min_mhz)} MHz) to sysfs."
+
+    if max_mhz is not None:
+        if not _sysfs_tee_write(od_path, f"s 1 {int(max_mhz)}"):
+            return False, f"Failed to write max GFX clock ({int(max_mhz)} MHz) to sysfs."
+
+    # Commit — required for the AMD driver to latch the new values
+    if not _sysfs_tee_write(od_path, "c"):
+        return False, "Failed to commit GFX clock changes via sysfs."
+
+    parts = []
+    if min_mhz is not None:
+        parts.append(f"min {int(min_mhz)} MHz")
+    if max_mhz is not None:
+        parts.append(f"max {int(max_mhz)} MHz")
+    return True, f"iGPU clock limits set via sysfs: {', '.join(parts)}."
+
+
 def get_current_info() -> dict:
     """Run ryzenadj -i and return a dict: display_name -> float value.
 
@@ -539,17 +650,44 @@ def get_current_info() -> dict:
     gpu_clk = get_live_gpu_clock()
     if gpu_clk is not None:
         metrics["GFX FORCED CLK"] = gpu_clk
-        # If the limits are not in metrics, fallback to current clock or approximate
-        if "GFX CLK LIMIT (MAX)" not in metrics:
-            metrics["GFX CLK LIMIT (MAX)"] = gpu_clk
-        if "GFX CLK LIMIT (MIN)" not in metrics:
-            metrics["GFX CLK LIMIT (MIN)"] = gpu_clk
+
+    # Read programmed clock limits from pp_od_clk_voltage when ryzenadj
+    # doesn't report them (older ryzenadj builds or unsupported CPU gen).
+    sysfs_min, sysfs_max = get_sysfs_gfx_clk_limits()
+    if "GFX CLK LIMIT (MAX)" not in metrics and sysfs_max is not None:
+        metrics["GFX CLK LIMIT (MAX)"] = sysfs_max
+    if "GFX CLK LIMIT (MIN)" not in metrics and sysfs_min is not None:
+        metrics["GFX CLK LIMIT (MIN)"] = sysfs_min
 
     cpu_clk = get_live_cpu_clock()
     if cpu_clk is not None:
         metrics["CPU OC CLK"] = cpu_clk
 
     return metrics
+
+
+def _parse_cpu_family(stdout: str) -> str:
+    """Extract the CPU Family string from ryzenadj output."""
+    for line in stdout.splitlines():
+        if line.startswith("CPU Family:"):
+            return line.split(":", 1)[1].strip()
+    return "Unknown"
+
+
+def _parse_supported_params(stdout: str) -> set[str]:
+    """Extract the supported CLI parameter names from ryzenadj output."""
+    supported = set()
+    pattern = re.compile(
+        r"\|\s*(.+?)\s*\|\s*([\d\.\-]+)\s*\|\s*(.*?)\s*\|"
+    )
+    for line in stdout.splitlines():
+        m = pattern.match(line.strip())
+        if m:
+            param = m.group(3).strip()
+            if param:
+                for p in re.split(r"\s*/\s*|\s+", param):
+                    supported.add(p)
+    return supported
 
 
 def _parse_info_output(output: str) -> dict:
@@ -578,9 +716,8 @@ def get_cpu_family() -> str:
             ["ryzenadj", "-i"],
             capture_output=True, text=True, timeout=10
         )
-        for line in res.stdout.splitlines():
-            if line.startswith("CPU Family:"):
-                return line.split(":", 1)[1].strip()
+        if res.returncode == 0:
+            return _parse_cpu_family(res.stdout)
     except Exception:
         pass
     return "Unknown"
@@ -588,26 +725,16 @@ def get_cpu_family() -> str:
 
 def get_supported_parameters() -> set[str]:
     """Parse the supported CLI parameter names from ryzenadj -i (sudo -n only, no polkit)."""
-    supported = set()
     try:
         res = _run_elevated(
             ["ryzenadj", "-i"],
             capture_output=True, text=True, timeout=10
         )
         if res.returncode == 0:
-            pattern = re.compile(
-                r"\|\s*(.+?)\s*\|\s*([\d\.\-]+)\s*\|\s*(.*?)\s*\|"
-            )
-            for line in res.stdout.splitlines():
-                m = pattern.match(line.strip())
-                if m:
-                    param = m.group(3).strip()
-                    if param:
-                        for p in re.split(r"\s*/\s*|\s+", param):
-                            supported.add(p)
+            return _parse_supported_params(res.stdout)
     except Exception as e:
         log.error("Error getting supported parameters: %s", e)
-    return supported
+    return set()
 
 
 def get_initial_data() -> tuple[str, dict, set, bool]:
@@ -622,33 +749,46 @@ def get_initial_data() -> tuple[str, dict, set, bool]:
             log.error("Authentication failed: ryzenadj requires root access.")
             return "Unknown", {}, set(), False
 
-        # Parse CPU family from the header line
-        cpu_family = "Unknown"
-        for line in res.stdout.splitlines():
-            if line.startswith("CPU Family:"):
-                cpu_family = line.split(":", 1)[1].strip()
-                break
-
-        # Parse live metric values
+        cpu_family = _parse_cpu_family(res.stdout)
         info_dict = _parse_info_output(res.stdout)
-
-        # Parse supported settable parameter names from the 3rd column
-        supported: set[str] = set()
-        pattern = re.compile(
-            r"\|\s*(.+?)\s*\|\s*([\d\.\-]+)\s*\|\s*(.*?)\s*\|"
-        )
-        for line in res.stdout.splitlines():
-            m = pattern.match(line.strip())
-            if m:
-                param = m.group(3).strip()
-                if param:
-                    for p in re.split(r"\s*/\s*|\s+", param):
-                        supported.add(p)
+        supported = _parse_supported_params(res.stdout)
 
         return cpu_family, info_dict, supported, True
     except Exception as e:
         log.error("Error getting initial data: %s", e)
         return "Unknown", {}, set(), False
+
+
+def _is_mobile_or_apu(cpu_family: str) -> bool:
+    """Check if the CPU family or model name indicates a mobile/APU chip."""
+    fam_lower = cpu_family.lower()
+    apu_families = {
+        "strix", "phoenix", "hawk", "rembrandt", "barcelo", "cezanne",
+        "lucienne", "renoir", "picasso", "raven", "mendocino", "sabin",
+        "kraken", "krackan", "sonoma", "dragon", "fire", "dali", "pollock",
+        "vangogh", "aerith", "sephiroth"
+    }
+    if any(fam in fam_lower for fam in apu_families):
+        return True
+
+    try:
+        with open("/proc/cpuinfo", "r") as f:
+            for line in f:
+                if line.strip().startswith("model name"):
+                    model_name = line.split(":", 1)[1].strip().lower()
+                    if "ryzen" in model_name:
+                        if (
+                            " ai " in model_name or
+                            " z1 " in model_name or
+                            " z1 extreme" in model_name or
+                            any(suffix in model_name for suffix in ["370", "365", "375"])
+                        ):
+                            return True
+                        if re.search(r"\b\d{3,4}(u|h|hs|hx|g|ge)\b", model_name):
+                            return True
+    except Exception:
+        pass
+    return False
 
 
 def is_parameter_supported(param: str, cpu_family: str, supported_params: set[str]) -> bool:
@@ -660,39 +800,40 @@ def is_parameter_supported(param: str, cpu_family: str, supported_params: set[st
     # Curve optimizer parameters are always supported in ryzenadj if supported_params is not empty,
     # as ryzenadj supports them on all Zen 3 and newer platforms, but they aren't always in the info table.
     if param.startswith("set-co"):
+        if param == "set-cogfx":
+            fam_lower = cpu_family.lower()
+            if "strix" in fam_lower or "phoenix" in fam_lower or "hawk" in fam_lower:
+                return False
+            # Also check proc cpuinfo for robust model name check
+            try:
+                with open("/proc/cpuinfo", "r") as f:
+                    for line in f:
+                        if line.strip().startswith("model name"):
+                            model_name = line.split(":", 1)[1].strip().lower()
+                            if "370" in model_name or "365" in model_name or "375" in model_name:
+                                return False
+            except Exception:
+                pass
         return True
 
     # skin-temp-limit and apu-skin-temp fallbacks for mobile/APU
     if param in ("skin-temp-limit", "apu-skin-temp"):
-        fam_lower = cpu_family.lower()
-        mobile_families = {
-            "strix", "phoenix", "hawk", "rembrandt", "barcelo", "cezanne", 
-            "lucienne", "renoir", "picasso", "raven", "mendocino", "sabin", 
-            "kraken", "krackan", "sonoma", "dragon", "fire", "dali", "pollock", 
-            "vangogh", "aerith", "sephiroth"
-        }
-        if any(fam in fam_lower for fam in mobile_families):
+        if param == "apu-skin-temp":
+            fam_lower = cpu_family.lower()
+            if "strix" in fam_lower or "phoenix" in fam_lower or "hawk" in fam_lower:
+                return False
+            # Also check proc cpuinfo for robust model name check
+            try:
+                with open("/proc/cpuinfo", "r") as f:
+                    for line in f:
+                        if line.strip().startswith("model name"):
+                            model_name = line.split(":", 1)[1].strip().lower()
+                            if "370" in model_name or "365" in model_name or "375" in model_name:
+                                return False
+            except Exception:
+                pass
+        if _is_mobile_or_apu(cpu_family):
             return True
-            
-        # check cpuinfo for mobile/ryzen ai
-        try:
-            with open("/proc/cpuinfo", "r") as f:
-                for line in f:
-                    if line.strip().startswith("model name"):
-                        model_name = line.split(":", 1)[1].strip().lower()
-                        if "ryzen" in model_name:
-                            if (
-                                " ai " in model_name or 
-                                " z1 " in model_name or 
-                                " z1 extreme" in model_name or
-                                any(suffix in model_name for suffix in ["370", "365", "375"])
-                            ):
-                                return True
-                            import re
-                            if re.search(r"\b\d{3,4}(u|h|hs|hx|g|ge)\b", model_name):
-                                return True
-        except Exception:
-            pass
 
     # dgpu-skin-temp is often reported but unsupported on many newer APU-only or monolithic mobile chips
     if param == "dgpu-skin-temp":
@@ -722,6 +863,11 @@ def is_parameter_supported(param: str, cpu_family: str, supported_params: set[st
             pass
         return is_unlocked_hx
 
+    # min/max-gfxclk: supported if ryzenadj exposes them OR if the sysfs
+    # pp_od_clk_voltage fallback is available on this machine.
+    if param in ("min-gfxclk", "max-gfxclk"):
+        return is_sysfs_gfx_clk_available()
+
     # gfx-clk fallbacks
     if param == "gfx-clk":
         # check igpu indicators
@@ -730,35 +876,8 @@ def is_parameter_supported(param: str, cpu_family: str, supported_params: set[st
             return True
 
         # check cpu family
-        fam_lower = cpu_family.lower()
-        apu_families = {
-            "strix", "phoenix", "hawk", "rembrandt", "barcelo", "cezanne", 
-            "lucienne", "renoir", "picasso", "raven", "mendocino", "sabin", 
-            "kraken", "krackan", "sonoma", "dragon", "fire", "dali", "pollock", 
-            "vangogh", "aerith", "sephiroth"
-        }
-        if any(fam in fam_lower for fam in apu_families):
+        if _is_mobile_or_apu(cpu_family):
             return True
-            
-        # check cpuinfo for mobile/ryzen ai
-        try:
-            with open("/proc/cpuinfo", "r") as f:
-                for line in f:
-                    if line.strip().startswith("model name"):
-                        model_name = line.split(":", 1)[1].strip().lower()
-                        if "ryzen" in model_name:
-                            if (
-                                " ai " in model_name or 
-                                " z1 " in model_name or 
-                                " z1 extreme" in model_name or
-                                any(suffix in model_name for suffix in ["370", "365", "375"])
-                            ):
-                                return True
-                            import re
-                            if re.search(r"\b\d{3,4}(u|h|hs|hx|g|ge)\b", model_name):
-                                return True
-        except Exception:
-            pass
 
     return False
 
@@ -809,10 +928,14 @@ def _build_ryzenadj_args(settings: dict) -> list[str]:
 
 def apply_settings(settings: dict, supported_params: set[str] = None, cpu_family: str = None) -> tuple[bool, str]:
     """
-    Apply settings via ryzenadj. settings is {param: value_in_native_unit}.
+    Apply settings via ryzenadj, with a sysfs fallback for min/max-gfxclk.
+
+    settings is {param: value_in_native_unit}.
     Returns (success, message).
 
-    Unknown or unsupported parameter names are filtered out before any hardware write is attempted.
+    Unknown or unsupported parameter names are filtered out before any hardware
+    write is attempted. min-gfxclk and max-gfxclk are routed through the sysfs
+    pp_od_clk_voltage path when ryzenadj does not expose them for this CPU.
     """
     if not settings:
         return False, "No settings to apply."
@@ -839,27 +962,65 @@ def apply_settings(settings: dict, supported_params: set[str] = None, cpu_family
     if not settings:
         return False, "No valid settings to apply after filtering unsupported params."
 
-    cmd = ["ryzenadj"] + _build_ryzenadj_args(settings)
-    print(f"\n[Ryzenadj-gtk] Executing hardware write command:\n  {' '.join(cmd)}\n", flush=True)
-    try:
-        res = _run_elevated(cmd, capture_output=True, text=True, timeout=15)
-        if res.returncode != 0:
-            err = (res.stderr or "") + "\n" + (res.stdout or "")
-            # Strip out "detected compatible ryzen_smu kernel module" and debugging logs to avoid toast clutter
-            lines = [l for l in err.splitlines() if "ryzen_smu" not in l and "Ryzen SMU" not in l and "Executing" not in l and "PrepareForSleep" not in l]
-            cleaned_err = "\n".join(lines).strip()
-            return False, cleaned_err or "ryzenadj returned error"
-            
-        # Merge into existing saved settings instead of overwriting entirely
+    # ── sysfs GFX clock fallback ──────────────────────────────────────────────
+    # Split out min/max-gfxclk when ryzenadj itself doesn't support them on
+    # this CPU — apply those via pp_od_clk_voltage instead.
+    GFX_CLK_PARAMS = ("min-gfxclk", "max-gfxclk")
+    ryzenadj_native = {"min-gfxclk", "max-gfxclk"} & set(supported_params or [])
+    sysfs_clk_settings = {
+        p: v for p, v in settings.items()
+        if p in GFX_CLK_PARAMS and p not in ryzenadj_native
+    }
+    ryzenadj_settings = {k: v for k, v in settings.items() if k not in sysfs_clk_settings}
+
+    sysfs_ok = True
+    sysfs_msg = ""
+    if sysfs_clk_settings:
+        min_val = sysfs_clk_settings.get("min-gfxclk")
+        max_val = sysfs_clk_settings.get("max-gfxclk")
+        # Values arrive in MHz (display_divisor=1 for these params)
+        sysfs_ok, sysfs_msg = apply_gfx_clk_sysfs(
+            int(min_val) if min_val is not None else None,
+            int(max_val) if max_val is not None else None,
+        )
+        if sysfs_ok:
+            log.info("sysfs GFX clk fallback applied: %s", sysfs_clk_settings)
+        else:
+            log.error("sysfs GFX clk fallback failed: %s", sysfs_msg)
+
+    # ── ryzenadj call for everything else ─────────────────────────────────────
+    ryzenadj_ok = True
+    ryzenadj_msg = ""
+    if ryzenadj_settings:
+        cmd = ["ryzenadj"] + _build_ryzenadj_args(ryzenadj_settings)
+        print(f"\n[Ryzenadj-gtk] Executing hardware write command:\n  {' '.join(cmd)}\n", flush=True)
+        try:
+            res = _run_elevated(cmd, capture_output=True, text=True, timeout=15)
+            if res.returncode != 0:
+                err = (res.stderr or "") + "\n" + (res.stdout or "")
+                lines = [
+                    l for l in err.splitlines()
+                    if "ryzen_smu" not in l and "Ryzen SMU" not in l
+                    and "Executing" not in l and "PrepareForSleep" not in l
+                ]
+                ryzenadj_msg = "\n".join(lines).strip() or "ryzenadj returned error"
+                ryzenadj_ok = False
+        except Exception as e:
+            ryzenadj_ok = False
+            ryzenadj_msg = str(e)
+
+    # ── Persist and report ────────────────────────────────────────────────────
+    overall_ok = (ryzenadj_ok or not ryzenadj_settings) and (sysfs_ok or not sysfs_clk_settings)
+    if overall_ok:
         current_saved = load_settings()
-        current_saved.update(settings)
+        current_saved.update(settings)  # persist everything that was requested
         save_settings(current_saved)
-        
         if is_service_enabled():
             sync_system_settings(current_saved)
         return True, "Settings applied successfully."
-    except Exception as e:
-        return False, str(e)
+    else:
+        msgs = [m for m in (ryzenadj_msg, sysfs_msg) if m]
+        return False, "\n".join(msgs)
 
 
 def apply_preset(preset_name: str) -> tuple[bool, str]:
@@ -977,8 +1138,11 @@ def set_service_enabled(enabled: bool) -> tuple[bool, str]:
             if settings:
                 sync_system_settings(settings)
         else:
-            # Remove /etc settings
-            _run_elevated(["rm", "-f", SYSTEM_CONFIG_FILE])
+            try:
+                if os.path.exists(SYSTEM_CONFIG_FILE):
+                    os.remove(SYSTEM_CONFIG_FILE)
+            except Exception as e:
+                log.warning("Could not delete system config file: %s", e)
             
         return True, f"Startup service {'enabled' if enabled else 'disabled'} successfully."
     except Exception as e:
@@ -998,13 +1162,21 @@ def sync_system_settings(settings: dict) -> bool:
 
 
 def factory_reset() -> tuple[bool, str]:
-    """Wipe all saved settings and disable the startup service."""
+    """Wipe all saved settings, custom profiles, UI config, and disable the startup service."""
     try:
-        # 1. Delete user config
+        # 1. Delete user settings
         if os.path.exists(CONFIG_FILE):
             os.remove(CONFIG_FILE)
+
+        # 2. Delete user profiles
+        if os.path.exists(PROFILES_FILE):
+            os.remove(PROFILES_FILE)
+        # 3. Delete UI config
+        ui_config = os.path.expanduser("~/.config/ryzenadj-gtk/ui.json")
+        if os.path.exists(ui_config):
+            os.remove(ui_config)
         
-        # 2. Disable service and delete system config
+        # 4. Disable service and delete system config
         set_service_enabled(False)
         
         return True, "All settings cleared and startup service disabled."
@@ -1041,26 +1213,26 @@ if __name__ == "__main__":
                 with open(SYSTEM_CONFIG_FILE, "r") as f:
                     settings = json.load(f)
                 if settings:
-                    import shutil
-                    ryzenadj_path = shutil.which("ryzenadj") or "/usr/bin/ryzenadj"
-                    # Apply directly (since this runs as root in systemd, no sudo needed)
-                    cmd = [ryzenadj_path] + _build_ryzenadj_args(settings)
-                    
                     # Robust retry loop for boot persistence (handles slow driver loading at startup)
                     max_retries = 5
                     for attempt in range(1, max_retries + 1):
-                        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-                        if res.returncode == 0:
-                            print(f"Successfully applied ryzenadj settings from system config (attempt {attempt}).")
-                            sys.exit(0)
-                        else:
-                            print(f"Attempt {attempt} failed: {res.stderr.strip()}")
-                            if attempt < max_retries:
-                                import time
-                                time.sleep(3)
+                        cpu_family, info, supported_params, auth_ok = get_initial_data()
+                        if auth_ok:
+                            ok, msg = apply_settings(settings, supported_params, cpu_family)
+                            if ok:
+                                print(f"Successfully applied ryzenadj and AMDGPU sysfs overdrive settings (attempt {attempt}).")
+                                sys.exit(0)
                             else:
-                                print("All boot apply attempts failed.")
-                                sys.exit(res.returncode)
+                                print(f"Attempt {attempt} failed to apply settings: {msg}")
+                        else:
+                            print(f"Attempt {attempt} failed: ryzenadj requires root/sudoers rules.")
+
+                        if attempt < max_retries:
+                            import time
+                            time.sleep(3)
+                        else:
+                            print("All boot apply attempts failed.")
+                            sys.exit(1)
             except Exception as e:
                 print(f"Failed to apply system settings: {e}")
                 sys.exit(1)

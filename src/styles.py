@@ -1,6 +1,13 @@
 """css"""
 
 CSS = """
+/* Define theme colors and fallbacks */
+@define-color semantic_green #30d158;
+@define-color semantic_yellow #ffd60a;
+@define-color semantic_red #ff3b30;
+@define-color warning_red #e01b24;
+@define-color sidebar_bg_color mix(@window_bg_color, @window_fg_color, 0.02);
+
 /* ─── Window & Background ─────────────────────────────────── */
 window.ryzenadj-win {
     background-color: @window_bg_color;
@@ -19,32 +26,7 @@ window.ryzenadj-win {
     border-bottom: none;
 }
 
-.header-cpu-label {
-    font-size: 11px;
-    font-weight: 800;
-    color: alpha(@window_fg_color, 0.45);
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-}
-
 /* ─── Dashboard Flat Aesthetics ────────────────────────────── */
-.dashboard-hero-group list,
-.dashboard-hero-group listbox,
-.dashboard-hero-group .boxed-list {
-    background-color: transparent;
-    border: none;
-    box-shadow: none;
-}
-
-.dashboard-hero-group row,
-.dashboard-hero-group listboxrow {
-    background-color: transparent;
-    border: none;
-    box-shadow: none;
-    padding: 0;
-    margin: 0;
-}
-
 .dashboard-group list,
 .dashboard-group listbox,
 .dashboard-group .boxed-list {
@@ -68,10 +50,6 @@ window.ryzenadj-win {
     background: radial-gradient(circle at top center, alpha(@accent_bg_color, 0.18) 0%, alpha(@accent_bg_color, 0.05) 40%, transparent 100%);
     border-radius: 20px;
     border: 1px solid alpha(@accent_bg_color, 0.15);
-}
-
-.hero-title-box {
-    margin-left: 16px;
 }
 
 .hero-icon {
@@ -106,23 +84,23 @@ window.ryzenadj-win {
 
 @keyframes status-pulse {
     0% {
-        background-color: alpha(#30d158, 0.2);
-        border-color: alpha(#30d158, 0.4);
+        background-color: alpha(@semantic_green, 0.2);
+        border-color: alpha(@semantic_green, 0.4);
     }
     50% {
-        background-color: alpha(#30d158, 0.4);
-        border-color: alpha(#30d158, 0.8);
+        background-color: alpha(@semantic_green, 0.4);
+        border-color: alpha(@semantic_green, 0.8);
     }
     100% {
-        background-color: alpha(#30d158, 0.2);
-        border-color: alpha(#30d158, 0.4);
+        background-color: alpha(@semantic_green, 0.2);
+        border-color: alpha(@semantic_green, 0.4);
     }
 }
 
 .live-status-pill {
-    background-color: alpha(#30d158, 0.2);
-    color: #30d158;
-    border: 1px solid alpha(#30d158, 0.4);
+    background-color: alpha(@semantic_green, 0.2);
+    color: @semantic_green;
+    border: 1px solid alpha(@semantic_green, 0.4);
     border-radius: 12px;
     padding: 4px 12px;
     font-size: 11px;
@@ -187,9 +165,9 @@ window.ryzenadj-win {
 }
 
 .monitor-limit-badge.bottleneck {
-    background-color: alpha(#ff3b30, 0.2);
-    color: #ff3b30;
-    border-color: alpha(#ff3b30, 0.5);
+    background-color: alpha(@semantic_red, 0.2);
+    color: @semantic_red;
+    border-color: alpha(@semantic_red, 0.5);
     animation: status-pulse 2s infinite cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -235,23 +213,23 @@ progressbar.usage-bar progress {
 }
 
 progressbar.usage-bar.low progress {
-    background-color: #30d158;
-    box-shadow: 0 0 12px alpha(#30d158, 0.3);
+    background-color: @semantic_green;
+    box-shadow: 0 0 12px alpha(@semantic_green, 0.3);
 }
 
 progressbar.usage-bar.medium progress {
-    background-color: #ffd60a;
-    box-shadow: 0 0 12px alpha(#ffd60a, 0.3);
+    background-color: @semantic_yellow;
+    box-shadow: 0 0 12px alpha(@semantic_yellow, 0.3);
 }
 
 progressbar.usage-bar.high progress {
-    background-color: #ff453a;
-    box-shadow: 0 0 12px alpha(#ff453a, 0.3);
+    background-color: @semantic_red;
+    box-shadow: 0 0 12px alpha(@semantic_red, 0.3);
 }
 
 progressbar.usage-bar.bottleneck progress {
-    background-color: #ff3b30;
-    box-shadow: 0 0 20px alpha(#ff3b30, 0.7);
+    background-color: @semantic_red;
+    box-shadow: 0 0 20px alpha(@semantic_red, 0.7);
 }
 
 /* ─── Slider rows (Setting Pages) ─────────────────────────── */
@@ -267,9 +245,9 @@ progressbar.usage-bar.bottleneck progress {
 }
 
 .live-badge {
-    background-color: alpha(#30d158, 0.15);
-    color: #30d158;
-    border: 1px solid alpha(#30d158, 0.3);
+    background-color: alpha(@semantic_green, 0.15);
+    color: @semantic_green;
+    border: 1px solid alpha(@semantic_green, 0.3);
     border-radius: 16px;
     padding: 6px 14px;
     font-size: 12px;
@@ -331,15 +309,15 @@ progressbar.usage-bar.bottleneck progress {
 }
 
 .btn-power-saving {
-    background-color: alpha(#30d158, 0.18);
-    color: #30d158;
-    border-color: alpha(#30d158, 0.4);
+    background-color: alpha(@semantic_green, 0.18);
+    color: @semantic_green;
+    border-color: alpha(@semantic_green, 0.4);
 }
 
 .btn-max-performance {
-    background-color: alpha(#ff453a, 0.18);
-    color: #ff453a;
-    border-color: alpha(#ff453a, 0.4);
+    background-color: alpha(@semantic_red, 0.18);
+    color: @semantic_red;
+    border-color: alpha(@semantic_red, 0.4);
 }
 
 /* ─── Apply button (High Impact) ──────────────────────────── */
@@ -404,8 +382,8 @@ progressbar.usage-bar.bottleneck progress {
 
 /* ─── Diagnostics Warning Banner ─────────────────────────── */
 .diagnostic-warning-row {
-    background-color: alpha(#e01b24, 0.12);
-    border: 1px solid alpha(#e01b24, 0.35);
+    background-color: alpha(@warning_red, 0.12);
+    border: 1px solid alpha(@warning_red, 0.35);
     border-radius: 12px;
     padding: 16px;
     margin: 8px 0;
@@ -413,7 +391,7 @@ progressbar.usage-bar.bottleneck progress {
 }
 
 .diagnostic-warning-row label.title {
-    color: #e01b24;
+    color: @warning_red;
     font-weight: 800;
     font-size: 16px;
 }
@@ -436,5 +414,31 @@ progressbar.usage-bar.bottleneck progress {
 .adj-btn:hover {
     opacity: 1.0;
     background-color: alpha(@window_fg_color, 0.08);
+}
+
+/* ─── Step jump buttons (±10, ±100) ──────────────────────── */
+.step-btn {
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.2px;
+    min-width: 34px;
+    min-height: 26px;
+    padding: 0 6px;
+    border-radius: 13px;
+    background-color: alpha(@window_fg_color, 0.05);
+    color: alpha(@window_fg_color, 0.45);
+    border: 1px solid alpha(@window_fg_color, 0.08);
+    transition: all 0.2s ease;
+}
+
+.step-btn:hover {
+    background-color: alpha(@accent_bg_color, 0.12);
+    color: @accent_bg_color;
+    border-color: alpha(@accent_bg_color, 0.3);
+    opacity: 1.0;
+}
+
+.step-btn:active {
+    background-color: alpha(@accent_bg_color, 0.2);
 }
 """
