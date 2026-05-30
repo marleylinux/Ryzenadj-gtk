@@ -15,7 +15,7 @@ Powered by [RyzenAdj](https://github.com/flygoat/ryzenadj) ❤️
 - Power limits (STAPM, fast PPT, slow PPT, APU PPT)
 - Current limits (TDC and EDC for CPU and SoC)
 - Temperature limits and skin temp stuff
-- iGPU clock limits and forcing
+- iGPU clock limits and forcing (with automatic AMDGPU sysfs overdrive fallback when ryzenadj limits aren't natively supported)
 - Some SoC clock and other lower level options
 - Save your own profiles and switch between them easily
 - Auto switch profiles when you plug or unplug the charger
@@ -29,6 +29,14 @@ Powered by [RyzenAdj](https://github.com/flygoat/ryzenadj) ❤️
 This is the part I actually care about most. You get separate sliders for each core now instead of just one global offset. Negative numbers reduce voltage.
 
 The app clamps to the safe -30 to +30 range. It also asks before applying anything that looks risky (big CO changes or stupid high power limits).
+
+## iGPU Clock Controls & Sysfs Fallback
+
+For newer chips or ryzenadj builds where `--min-gfxclk` and `--max-gfxclk` aren't natively supported, the app has a built-in fallback that talks directly to the AMDGPU driver via sysfs (`pp_od_clk_voltage` / overdrive table).
+
+This requires your GPU's Overdrive feature to be enabled in your kernel boot parameters (e.g. `amdgpu.ppfeaturemask=0xffffffff`), and the installer sets up secure passwordless `tee` rules so it works seamlessly in the background.
+
+If you set custom minimum or maximum clock speeds and decide to remove them later, you'll be prompted to reboot to fully restore stock GPU firmware behavior.
 
 ## Warnings
 
