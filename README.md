@@ -34,7 +34,7 @@ The app clamps to the safe -30 to +30 range. It also asks before applying anythi
 
 For newer chips or ryzenadj builds where `--min-gfxclk` and `--max-gfxclk` aren't natively supported, the app has a built-in fallback that talks directly to the AMDGPU driver via sysfs (`pp_od_clk_voltage` / overdrive table).
 
-This requires your GPU's Overdrive feature to be enabled in your kernel boot parameters (e.g. `amdgpu.ppfeaturemask=0xffffffff`), and the installer sets up secure passwordless `tee` rules so it works seamlessly in the background.
+The installer sets up secure passwordless `tee` rules so it works seamlessly in the background.
 
 If you set custom minimum or maximum clock speeds and decide to remove them later, you'll be prompted to reboot to fully restore stock GPU firmware behavior.
 
