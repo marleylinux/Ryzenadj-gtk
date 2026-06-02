@@ -212,7 +212,17 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
 
     def on_remove(_b, p=param, m=meta, c_cli=cur_cli, sli=slider, l=lo):
         is_gfx = p in ("min-gfxclk", "max-gfxclk", "gfx-clk")
-        params_to_remove = ["min-gfxclk", "max-gfxclk", "gfx-clk"] if is_gfx else [p]
+        is_co = p == "set-coall" or p.startswith("set-coper-")
+        
+        if is_gfx:
+            params_to_remove = ["min-gfxclk", "max-gfxclk", "gfx-clk"]
+        elif is_co:
+            if app:
+                params_to_remove = [k for k in app._slider_rows.keys() if k == "set-coall" or k.startswith("set-coper-")]
+            else:
+                params_to_remove = [p]
+        else:
+            params_to_remove = [p]
 
         was_configured = False
         if app:
@@ -261,16 +271,20 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
                         if hasattr(row_widget, "_update_val_label"):
                             row_widget._update_val_label(sli_widget, False)
 
-            if app and hasattr(app, "_update_gfx_clock_conflict_status"):
-                app._update_gfx_clock_conflict_status()
+            if app and hasattr(app, "_update_conflicts"):
+                app._update_conflicts()
 
             if app and app.win:
-                heading = "Graphics Clock Overrides Cleared" if is_gfx else "Setting Removed from Startup"
-                body = (
-                    "All graphics clock options have been cleared from startup settings.\n\nA reboot is recommended to fully return the graphics system to stock firmware behavior."
-                    if is_gfx
-                    else f"{msg}\n\nA reboot is recommended to fully clear this setting from hardware."
-                )
+                if is_gfx:
+                    heading = "Graphics Clock Overrides Cleared"
+                    body = "All graphics clock options have been cleared from startup settings.\n\nA reboot is recommended to fully return the graphics system to stock firmware behavior."
+                elif is_co:
+                    heading = "Curve Optimizer Cleared"
+                    body = "All Curve Optimizer settings (Global & Per Core) have been cleared.\n\nA reboot is recommended to fully clear these settings from hardware."
+                else:
+                    heading = "Setting Removed from Startup"
+                    body = f"{msg}\n\nA reboot is recommended to fully clear this setting from hardware."
+                
                 reboot_dialog = Adw.MessageDialog(
                     transient_for=app.win,
                     heading=heading,
@@ -355,8 +369,8 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
         else:
             target_badge.set_text("Target: Auto")
 
-        if app and hasattr(app, "_update_gfx_clock_conflict_status"):
-            app._update_gfx_clock_conflict_status()
+        if app and hasattr(app, "_update_conflicts"):
+            app._update_conflicts()
 
     slider.connect("value-changed", lambda s: update_val_label(s, True))
     row._update_val_label = update_val_label
@@ -381,6 +395,7 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
     row._cur_badge  = cur_badge
     row._param_meta = meta
     row._desc_label = desc_label
+    row._bottom_box = bottom_box
 
     return row
 

@@ -173,7 +173,7 @@ class MonitorMixin:
         self._update_dashboard_cards()
         self._update_slider_badges()
         self._update_status_label()
-        self._update_gfx_clock_conflict_status()
+        self._update_conflicts()
         return False
 
     def _update_dashboard_cards(self) -> None:

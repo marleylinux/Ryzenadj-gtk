@@ -262,8 +262,10 @@ class ActionsMixin:
         else:
             self._show_toast("Enthusiast Mode: Reset ranges back to standard bounds.", is_error=False)
 
-    def _update_gfx_clock_conflict_status(self) -> None:
-        """Lock out gfx-clk if min/max clock are set, and vice versa (researched graphics clock conflicts to prevent lockups)"""
+    def _update_conflicts(self) -> None:
+        """Lock out conflicting settings (GFX min/max vs forced, CO all vs per-core)"""
+        
+        # 1. GFX Clocks
         if getattr(self, "gfx_reboot_required", False):
             # Lock everything if GFX was reset to stock and system needs a reboot
             for param in ("min-gfxclk", "max-gfxclk", "gfx-clk"):
@@ -281,14 +283,55 @@ class ActionsMixin:
                     desc_label.set_markup(f"<span style='italic' size='small'>{meta['desc']} <span color='#e01b24' weight='bold' size='small'>(Unsupported on this CPU)</span></span>")
                     continue
 
-                row.set_sensitive(False)
+                row._bottom_box.set_sensitive(False)
                 desc_label.set_markup(f"<span style='italic' size='small'>{meta['desc']} <span color='#e01b24' weight='bold' size='small'>(Unsupported: reboot required to clear GFX conflicts)</span></span>")
-            return
+        else:
+            has_min_max = ("min-gfxclk" in self.pending_settings) or ("max-gfxclk" in self.pending_settings)
+            has_forced = "gfx-clk" in self.pending_settings
 
-        has_min_max = ("min-gfxclk" in self.pending_settings) or ("max-gfxclk" in self.pending_settings)
-        has_forced = "gfx-clk" in self.pending_settings
+            for param in ("min-gfxclk", "max-gfxclk", "gfx-clk"):
+                row = self._slider_rows.get(param)
+                if not row:
+                    continue
+                meta = getattr(row, "_param_meta", None)
+                desc_label = getattr(row, "_desc_label", None)
+                if not meta or not desc_label:
+                    continue
 
-        for param in ("min-gfxclk", "max-gfxclk", "gfx-clk"):
+                hw_supported = ryzen.is_parameter_supported(param, self.cpu_family, self.supported_params)
+                if not hw_supported:
+                    row.set_sensitive(False)
+                    desc_label.set_markup(f"<span style='italic' size='small'>{meta['desc']} <span color='#e01b24' weight='bold' size='small'>(Unsupported on this CPU)</span></span>")
+                    continue
+
+                is_conflicted = False
+                conflict_msg = ""
+                if param in ("min-gfxclk", "max-gfxclk") and has_forced:
+                    is_conflicted = True
+                    conflict_msg = "conflicts with Forced iGPU Clock"
+                elif param == "gfx-clk" and has_min_max:
+                    is_conflicted = True
+                    conflict_msg = "conflicts with min/max iGPU Clock"
+
+                if is_conflicted:
+                    row._bottom_box.set_sensitive(False)
+                    desc_label.set_markup(f"<span style='italic' size='small'>{meta['desc']} <span color='#e01b24' weight='bold' size='small'>(Unsupported: {conflict_msg})</span></span>")
+                else:
+                    row.set_sensitive(True)
+                    row._bottom_box.set_sensitive(True)
+                    desc_text = meta["desc"]
+                    if param in ("min-gfxclk", "max-gfxclk"):
+                        ryzenadj_native = param in (self.supported_params or set())
+                        if not ryzenadj_native and ryzen.is_sysfs_gfx_clk_available():
+                            desc_text = f"{desc_text} <span color='#30d158' weight='bold' size='small'>(AMDGPU Sysfs Overdrive - fallback)</span>"
+                    desc_label.set_markup(f"<span style='italic' size='small'>{desc_text}</span>")
+
+        # 2. Curve Optimizer (All Core vs Per Core)
+        co_params = [p for p in self._slider_rows.keys() if p == "set-coall" or p.startswith("set-coper-")]
+        has_coall = "set-coall" in self.pending_settings
+        has_coper = any(p.startswith("set-coper-") for p in self.pending_settings)
+
+        for param in co_params:
             row = self._slider_rows.get(param)
             if not row:
                 continue
@@ -296,9 +339,8 @@ class ActionsMixin:
             desc_label = getattr(row, "_desc_label", None)
             if not meta or not desc_label:
                 continue
-
+            
             hw_supported = ryzen.is_parameter_supported(param, self.cpu_family, self.supported_params)
-
             if not hw_supported:
                 row.set_sensitive(False)
                 desc_label.set_markup(f"<span style='italic' size='small'>{meta['desc']} <span color='#e01b24' weight='bold' size='small'>(Unsupported on this CPU)</span></span>")
@@ -306,21 +348,17 @@ class ActionsMixin:
 
             is_conflicted = False
             conflict_msg = ""
-            if param in ("min-gfxclk", "max-gfxclk") and has_forced:
+            if param.startswith("set-coper-") and has_coall:
                 is_conflicted = True
-                conflict_msg = "conflicts with Forced iGPU Clock"
-            elif param == "gfx-clk" and has_min_max:
+                conflict_msg = "conflicts with All Core Offset"
+            elif param == "set-coall" and has_coper:
                 is_conflicted = True
-                conflict_msg = "conflicts with min/max iGPU Clock"
+                conflict_msg = "conflicts with Per Core Offsets"
 
             if is_conflicted:
-                row.set_sensitive(False)
+                row._bottom_box.set_sensitive(False)
                 desc_label.set_markup(f"<span style='italic' size='small'>{meta['desc']} <span color='#e01b24' weight='bold' size='small'>(Unsupported: {conflict_msg})</span></span>")
             else:
                 row.set_sensitive(True)
-                desc_text = meta["desc"]
-                if param in ("min-gfxclk", "max-gfxclk"):
-                    ryzenadj_native = param in (self.supported_params or set())
-                    if not ryzenadj_native and ryzen.is_sysfs_gfx_clk_available():
-                        desc_text = f"{desc_text} <span color='#30d158' weight='bold' size='small'>(AMDGPU Sysfs Overdrive - fallback)</span>"
-                desc_label.set_markup(f"<span style='italic' size='small'>{desc_text}</span>")
+                row._bottom_box.set_sensitive(True)
+                desc_label.set_markup(f"<span style='italic' size='small'>{meta['desc']}</span>")
