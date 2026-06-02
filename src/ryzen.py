@@ -158,8 +158,9 @@ def get_initial_data() -> tuple[str, dict, set, bool]:
     """Get CPU info and support metrics on startup"""
     try:
         res = _run_elevated(["ryzenadj", "-i"], capture_output=True, text=True, timeout=15)
-        auth_ok = (res.returncode == 0)
-        if not auth_ok:
+        
+        auth_ok = True
+        if res.returncode != 0 and ("password is required" in res.stderr.lower() or "sudo:" in res.stderr.lower()):
             log.error("Authentication failed: ryzenadj requires root access.")
             return "Unknown", {}, set(), False
 
