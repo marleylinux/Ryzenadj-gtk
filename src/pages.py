@@ -112,8 +112,12 @@ fi
             res = subprocess.run(["pkexec", "sh", "-c", script])
             if res.returncode == 0:
                 app._retry_auth()
-        except Exception:
-            pass
+            else:
+                if app and hasattr(app, "_show_toast"):
+                    app._show_toast(f"Authorization failed (Code {res.returncode})", is_error=True)
+        except Exception as e:
+            if app and hasattr(app, "_show_toast"):
+                app._show_toast(f"Error launching pkexec: {e}", is_error=True)
 
     btn_fix.connect("clicked", on_fix)
 
