@@ -78,6 +78,43 @@ SETTINGS_PARAMS = [
         "category": "current",
         "value_key": "EDC LIMIT SOC",
     },
+    {
+        "param": "psi0-current",
+        "label": "PSI0 VDD Current",
+        "desc": "PSI0 VDD Current Limit",
+        "min": 1000, "max": 50000, "step": 1000,
+        "unit": "mA", "display_divisor": 1000, "display_unit": "A",
+        "category": "current",
+        "value_key": "PSI0 CURRENT VDD",
+    },
+    {
+        "param": "psi3cpu_current",
+        "label": "PSI3 CPU Current",
+        "desc": "PSI3 CPU Current Limit",
+        "min": 1000, "max": 50000, "step": 1000,
+        "unit": "mA", "display_divisor": 1000, "display_unit": "A",
+        "category": "current",
+        "value_key": "PSI3 CURRENT CPU",
+    },
+    {
+        "param": "psi0soc-current",
+        "label": "PSI0 SoC Current",
+        "desc": "PSI0 SoC Current Limit",
+        "min": 1000, "max": 50000, "step": 1000,
+        "unit": "mA", "display_divisor": 1000, "display_unit": "A",
+        "category": "current",
+        "value_key": "PSI0 CURRENT SOC",
+    },
+    {
+        "param": "psi3gfx_current",
+        "label": "PSI3 GFX Current",
+        "desc": "PSI3 GFX Current Limit",
+        "min": 1000, "max": 50000, "step": 1000,
+        "unit": "mA", "display_divisor": 1000, "display_unit": "A",
+        "category": "current",
+        "value_key": "PSI3 CURRENT GFX",
+        "is_gpu": True,
+    },
     # Thermal limits
     {
         "param": "tctl-temp",
@@ -166,7 +203,7 @@ SETTINGS_PARAMS = [
         "is_gpu": True,
     },
     {
-        "param": "vrmgfxmax-current",
+        "param": "vrmgfxmax_current",
         "label": "VRM iGPU Max Current (EDC)",
         "desc": "EDC Limit GFX - graphics VRM maximum peak current",
         "min": 10000, "max": 180000, "step": 1000,
@@ -227,6 +264,69 @@ SETTINGS_PARAMS = [
         "unit": "MHz", "display_divisor": 1, "display_unit": "MHz",
         "category": "clocks",
         "value_key": "SOCCLK LIMIT (MIN)",
+        "is_cpu": True,
+    },
+    # FCLK Limits
+    {
+        "param": "max-fclk-frequency",
+        "label": "Max FCLK",
+        "desc": "Maximum Transmission (CPU-GPU) Frequency",
+        "min": 400, "max": 3000, "step": 33,
+        "unit": "MHz", "display_divisor": 1, "display_unit": "MHz",
+        "category": "clocks",
+        "value_key": "FCLK LIMIT (MAX)",
+        "is_cpu": True,
+    },
+    {
+        "param": "min-fclk-frequency",
+        "label": "Min FCLK",
+        "desc": "Minimum Transmission (CPU-GPU) Frequency",
+        "min": 400, "max": 3000, "step": 33,
+        "unit": "MHz", "display_divisor": 1, "display_unit": "MHz",
+        "category": "clocks",
+        "value_key": "FCLK LIMIT (MIN)",
+        "is_cpu": True,
+    },
+    # VCN Limits
+    {
+        "param": "max-vcn",
+        "label": "Max VCN",
+        "desc": "Maximum Video Core Next Frequency",
+        "min": 400, "max": 3000, "step": 33,
+        "unit": "MHz", "display_divisor": 1, "display_unit": "MHz",
+        "category": "clocks",
+        "value_key": "VCN LIMIT (MAX)",
+        "is_gpu": True,
+    },
+    {
+        "param": "min-vcn",
+        "label": "Min VCN",
+        "desc": "Minimum Video Core Next Frequency",
+        "min": 400, "max": 3000, "step": 33,
+        "unit": "MHz", "display_divisor": 1, "display_unit": "MHz",
+        "category": "clocks",
+        "value_key": "VCN LIMIT (MIN)",
+        "is_gpu": True,
+    },
+    # LCLK Limits
+    {
+        "param": "max-lclk",
+        "label": "Max LCLK",
+        "desc": "Maximum Data Launch Clock",
+        "min": 400, "max": 3000, "step": 33,
+        "unit": "MHz", "display_divisor": 1, "display_unit": "MHz",
+        "category": "clocks",
+        "value_key": "LCLK LIMIT (MAX)",
+        "is_cpu": True,
+    },
+    {
+        "param": "min-lclk",
+        "label": "Min LCLK",
+        "desc": "Minimum Data Launch Clock",
+        "min": 400, "max": 3000, "step": 33,
+        "unit": "MHz", "display_divisor": 1, "display_unit": "MHz",
+        "category": "clocks",
+        "value_key": "LCLK LIMIT (MIN)",
         "is_cpu": True,
     },
 
@@ -427,7 +527,7 @@ def is_parameter_supported(param: str, cpu_family: str, supported_params: set[st
         return (supported_params and param in supported_params) or is_sysfs_gfx_clk_available()
 
     if param == "gfx-clk":
-        igpu_indicators = {"gfx-clk", "gfx-clock", "max-gfxclk", "min-gfxclk", "vrmgfx-current", "vrmgfxmax-current"}
+        igpu_indicators = {"gfx-clk", "gfx-clock", "max-gfxclk", "min-gfxclk", "vrmgfx-current", "vrmgfxmax_current"}
         if supported_params and any(ind in supported_params for ind in igpu_indicators):
             return True
         if _is_mobile_or_apu(cpu_family):
