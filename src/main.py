@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 APP_ID = "com.marley.ryzenadj-gtk"
 APP_NAME = "Ryzenadj-gtk"
-APP_VER = "1.7.0"
+APP_VER = "1.8.0"
 
 
 class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
@@ -232,7 +232,7 @@ class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
         # Load default sliders values
         self._sync_sliders_to_hardware_or_pending(info, use_pending=True)
         self.applied_settings = dict(self.pending_settings)
-        self._update_gfx_clock_conflict_status()
+        self._update_conflicts()
 
         # Hide telemetry cards if the system cannot read them
         for card in self._dashboard_cards:
