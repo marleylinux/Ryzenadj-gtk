@@ -2,7 +2,6 @@
 
 GTK4 frontend for ryzenadj. Just lets you change power limits, currents, temps, and curve optimizer without living in the terminal.
 
-I made it for myself because I was tired of typing the same commands over and over.
 
 Powered by [RyzenAdj](https://github.com/flygoat/ryzenadj) ❤️
 
