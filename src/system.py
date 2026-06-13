@@ -130,7 +130,8 @@ def get_live_cpu_clock() -> float | None:
 def get_live_gpu_clock() -> float | None:
     """Get current GPU speed in MHz"""
     try:
-        for card in ("card0", "card1"):
+        for i in range(4):
+            card = f"card{i}"
             base_dir = f"/sys/class/drm/{card}/device/hwmon"
             if os.path.exists(base_dir):
                 for hwmon in os.listdir(base_dir):
@@ -143,7 +144,8 @@ def get_live_gpu_clock() -> float | None:
         pass
 
     try:
-        for card in ("card0", "card1"):
+        for i in range(4):
+            card = f"card{i}"
             path = f"/sys/class/drm/{card}/device/pp_dpm_sclk"
             if os.path.exists(path):
                 with open(path, "r") as f:

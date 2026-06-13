@@ -4,7 +4,11 @@ import subprocess
 import logging
 import ryzen
 
-from gi.repository import Gtk, Adw
+from gi.repository import Gtk, Adw, Gdk
+try:
+    from main import APP_VER
+except ImportError:
+    APP_VER = "1.8.1"
 
 from widgets import (
     get_cpu_name,
@@ -184,7 +188,7 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
     text_box.set_valign(Gtk.Align.CENTER)
 
-    title_lbl = Gtk.Label(label="System Dashboard")
+    title_lbl = Gtk.Label(label="Ryzen Dashboard")
     title_lbl.add_css_class("hero-title")
     title_lbl.set_halign(Gtk.Align.START)
     text_box.append(title_lbl)
@@ -249,19 +253,41 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     grp_current.add(current_grid)
     main_box.append(grp_current)
 
-    main_box.append(_build_section_header("Thermal Status", "temperature-symbolic"))
+    main_box.append(_build_section_header("Thermal Status", "sensors-temperature-symbolic"))
 
     grp_thermal = Adw.PreferencesGroup()
     grp_thermal.add_css_class("dashboard-group")
 
     thermal_flow = _make_card_grid(app, [
-        ("THM VALUE CORE", "THM LIMIT CORE", "CPU Die",       "°C", "temperature-symbolic"),
-        ("STT VALUE APU",  "STT LIMIT APU",  "APU Skin",      "°C", "temperature-symbolic"),
-        ("STT VALUE dGPU", "STT LIMIT dGPU", "dGPU Skin",     "°C", "temperature-symbolic"),
+        ("THM VALUE CORE", "THM LIMIT CORE", "CPU Die",       "°C", "sensors-temperature-symbolic"),
+        ("STT VALUE APU",  "STT LIMIT APU",  "APU Skin",      "°C", "sensors-temperature-symbolic"),
+        ("STT VALUE dGPU", "STT LIMIT dGPU", "dGPU Skin",     "°C", "sensors-temperature-symbolic"),
     ])
     grp_thermal.add(thermal_flow)
     main_box.append(grp_thermal)
 
+    return scrolled
+
+
+def _build_settings_page(app) -> Gtk.ScrolledWindow:
+    """Build settings page containing automation, persistence, startup and tuning, and about sections"""
+    scrolled = Gtk.ScrolledWindow()
+    scrolled.set_vexpand(True)
+    scrolled.set_name("settings")
+    scrolled.get_title = lambda: "Settings"
+
+    clamp = Adw.Clamp()
+    clamp.set_maximum_size(1000)
+    clamp.set_margin_top(24)
+    clamp.set_margin_bottom(32)
+    clamp.set_margin_start(16)
+    clamp.set_margin_end(16)
+    scrolled.set_child(clamp)
+
+    main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    clamp.set_child(main_box)
+
+    # Power Automation
     main_box.append(_build_section_header("Power Automation", "battery-symbolic"))
 
     grp_automation = Adw.PreferencesGroup()
@@ -329,18 +355,26 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
         app._save_ui_settings()
         ac_row.set_sensitive(active)
         bat_row.set_sensitive(active)
+        if active:
+            current_ac = ryzen.is_on_ac_power()
+            app.last_ac_state = current_ac
+            app._apply_auto_power_profile(current_ac)
 
     def on_ac_selected(row, _spec):
         idx = row.get_selected()
         if hasattr(row, "_option_keys") and idx < len(row._option_keys):
             app.ui_settings["ac_profile"] = row._option_keys[idx]
             app._save_ui_settings()
+            if app.ui_settings.get("auto_switch", False) and ryzen.is_on_ac_power():
+                app._apply_auto_power_profile(True)
 
     def on_bat_selected(row, _spec):
         idx = row.get_selected()
         if hasattr(row, "_option_keys") and idx < len(row._option_keys):
             app.ui_settings["battery_profile"] = row._option_keys[idx]
             app._save_ui_settings()
+            if app.ui_settings.get("auto_switch", False) and not ryzen.is_on_ac_power():
+                app._apply_auto_power_profile(False)
 
     switch_auto.connect("notify::active", on_auto_switch_toggled)
     ac_row.connect("notify::selected", on_ac_selected)
@@ -349,6 +383,7 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     ac_row.set_sensitive(app.ui_settings.get("auto_switch", False))
     bat_row.set_sensitive(app.ui_settings.get("auto_switch", False))
 
+    # Persistence Guard
     main_box.append(_build_section_header("Persistence Guard", "system-lock-screen-symbolic"))
 
     grp_persistence = Adw.PreferencesGroup()
@@ -406,6 +441,7 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     
     persist_interval_row.set_sensitive(app.ui_settings.get("persistence_enabled", False))
 
+    # System and Tuning
     main_box.append(_build_section_header("System and Tuning", "preferences-system-symbolic"))
 
     grp_service = Adw.PreferencesGroup()
@@ -430,12 +466,43 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     app.switch_enthusiast = switch_enthusiast
     switch_enthusiast.connect("notify::active", app.on_enthusiast_toggled)
     grp_service.add(switch_enthusiast)
+    main_box.append(grp_service)
 
+    # About Section
+    main_box.append(_build_section_header("About", "help-about-symbolic"))
+    
+    group_about = Adw.PreferencesGroup()
+    group_about.set_title("Application Details")
+    
+    row_version = Adw.ActionRow()
+    row_version.set_title("Version")
+    row_version.set_subtitle(APP_VER)
+    group_about.add(row_version)
+    
+    row_author = Adw.ActionRow()
+    row_author.set_title("Developer")
+    row_author.set_subtitle("Marley (marleylinux)")
+    group_about.add(row_author)
+    
+    row_repo = Adw.ActionRow()
+    row_repo.set_title("Repository")
+    row_repo.set_subtitle("https://github.com/marleylinux/Ryzenadj-gtk")
+    
+    btn_link = Gtk.Button(icon_name="document-open-symbolic")
+    btn_link.set_tooltip_text("Open GitHub Repo")
+    btn_link.set_valign(Gtk.Align.CENTER)
+    btn_link.connect("clicked", lambda b: Gtk.show_uri(app.win, "https://github.com/marleylinux/Ryzenadj-gtk", Gdk.CURRENT_TIME))
+    row_repo.add_suffix(btn_link)
+    group_about.add(row_repo)
+    main_box.append(group_about)
+
+    # Factory Reset
     btn_reset = Gtk.Button()
     btn_reset.set_tooltip_text("Wipe all settings, disable startup service, and prepare for reboot")
     btn_reset.add_css_class("destructive-action")
     btn_reset.add_css_class("pill")
-    btn_reset.set_margin_top(16)
+    btn_reset.set_margin_top(24)
+    btn_reset.set_margin_bottom(16)
     btn_reset.set_halign(Gtk.Align.CENTER)
     
     btn_reset_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -446,8 +513,7 @@ def _build_dashboard_page(app) -> Gtk.ScrolledWindow:
     btn_reset.set_child(btn_reset_content)
     
     btn_reset.connect("clicked", app.on_factory_reset_clicked)
-    grp_service.add(btn_reset)
-    main_box.append(grp_service)
+    main_box.append(btn_reset)
 
     return scrolled
 
@@ -598,20 +664,50 @@ def _build_profiles_page(app) -> Gtk.ScrolledWindow:
             # Helper functions to build callbacks (closures needed here so they remember their target profile name/settings)
             def make_on_apply(p_name, p_settings):
                 def on_apply(_btn):
+                    # 1. Clear out any pending or applied settings that are not in the profile
+                    keys_to_remove = [k for k in app.pending_settings if k not in p_settings]
+                    for k in keys_to_remove:
+                        del app.pending_settings[k]
+                    
+                    keys_to_remove_applied = [k for k in app.applied_settings if k not in p_settings]
+                    for k in keys_to_remove_applied:
+                        del app.applied_settings[k]
+
+                    # 2. Update/apply profile settings
                     for param, val in p_settings.items():
                         app.pending_settings[param] = val
-                        if param in app._slider_rows:
-                            row_widget = app._slider_rows[param]
-                            slider = getattr(row_widget, "_slider", None)
-                            if slider:
-                                # Lock rows programmatically so we don't fire unwanted slider changed events
-                                row_widget._updating_programmatically = True
-                                slider.set_value(float(val))
-                                row_widget._updating_programmatically = False
-                                if hasattr(row_widget, "_update_val_label"):
-                                    row_widget._update_val_label(slider, True)
+
+                    # 3. Update all sliders in the UI
+                    for param, row_widget in app._slider_rows.items():
+                        slider = getattr(row_widget, "_slider", None)
+                        if not slider:
+                            continue
+                        
+                        meta = getattr(row_widget, "_param_meta", None)
+                        if not meta:
+                            continue
+                            
+                        row_widget._updating_programmatically = True
+                        if param in p_settings:
+                            val = float(p_settings[param])
+                            slider.set_value(val)
+                        else:
+                            # Reset to hardware value or default
+                            vkey = meta["value_key"]
+                            cur_raw = app.current_info.get(vkey)
+                            if cur_raw is not None:
+                                val = cur_raw * meta["display_divisor"]
+                            else:
+                                val = float(meta.get("default", meta["min"]))
+                            slider.set_value(val)
+                        row_widget._updating_programmatically = False
+                        
+                        if hasattr(row_widget, "_update_val_label"):
+                            row_widget._update_val_label(slider, param in p_settings)
+
                     app._show_toast(f"Applying profile '{p_name}'...", is_error=False)
-                    # Check which parameters are actually different before running ryzenadj
+                    
+                    # 4. Determine diff and execute apply
                     diff_settings = {
                         k: v for k, v in p_settings.items()
                         if app.applied_settings.get(k) != v

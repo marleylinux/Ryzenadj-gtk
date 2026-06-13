@@ -1,11 +1,11 @@
 # Maintainer: Marley <warburtonmarley@proton.me>
 pkgname=ryzenadj-gtk
-pkgver=1.8.0
+pkgver=1.8.1
 pkgrel=1
 pkgdesc="A modern, polished GTK4/Libadwaita graphical wrapper for ryzenadj (AMD power management adjustment tool)."
 arch=('any')
 url="https://github.com/marleylinux/Ryzenadj-gtk"
-license=('GPL3')
+license=('GPL-3.0-only')
 install=ryzenadj-gtk.install
 depends=('python>=3.11' 'python-gobject' 'gtk4' 'libadwaita' 'ryzenadj')
 optdepends=('ryzen_smu-dkms-git: enhanced hardware monitoring and control')

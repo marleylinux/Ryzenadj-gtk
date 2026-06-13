@@ -32,6 +32,7 @@ from settings import (
     load_settings,
     save_settings,
     remove_setting_from_startup,
+    remove_settings_from_startup,
     is_service_enabled,
     sync_system_settings,
     set_service_enabled,
@@ -159,7 +160,6 @@ def get_initial_data() -> tuple[str, dict, set, bool]:
     try:
         res = _run_elevated(["ryzenadj", "-i"], capture_output=True, text=True, timeout=15)
         
-        auth_ok = True
         if res.returncode != 0 and ("password is required" in res.stderr.lower() or "sudo:" in res.stderr.lower()):
             log.error("Authentication failed: ryzenadj requires root access.")
             return "Unknown", {}, set(), False
@@ -268,9 +268,9 @@ def apply_settings(settings: dict, supported_params: set[str] = None, cpu_family
             if res.returncode != 0:
                 err = (res.stderr or "") + "\n" + (res.stdout or "")
                 lines = [
-                    l for l in err.splitlines()
-                    if "ryzen_smu" not in l and "Ryzen SMU" not in l
-                    and "Executing" not in l and "PrepareForSleep" not in l
+                    line for line in err.splitlines()
+                    if "ryzen_smu" not in line and "Ryzen SMU" not in line
+                    and "Executing" not in line and "PrepareForSleep" not in line
                 ]
                 ryzenadj_msg = "\n".join(lines).strip() or "ryzenadj returned error"
                 ryzenadj_ok = False
@@ -289,7 +289,8 @@ def apply_settings(settings: dict, supported_params: set[str] = None, cpu_family
             current_saved.update(valid_applied)
             save_settings(current_saved)
             if is_service_enabled():
-                sync_system_settings(current_saved)
+                if not sync_system_settings(current_saved):
+                    return True, "Settings applied, but failed to update boot configuration (/etc/ryzenadj-gtk/settings.json)."
         return True, "Settings applied successfully."
     else:
         msgs = [m for m in (ryzenadj_msg, sysfs_msg) if m]
@@ -309,7 +310,7 @@ def apply_preset(preset_name: str) -> tuple[bool, str]:
         res = _run_elevated(cmd, capture_output=True, text=True, timeout=15)
         if res.returncode != 0:
             err = res.stderr or ""
-            lines = [l for l in err.splitlines() if "ryzen_smu" not in l and "Ryzen SMU" not in l]
+            lines = [line for line in err.splitlines() if "ryzen_smu" not in line and "Ryzen SMU" not in line]
             cleaned_err = "\n".join(lines).strip()
             return False, cleaned_err or "ryzenadj returned error"
         return True, f"Preset '{preset_name}' applied."

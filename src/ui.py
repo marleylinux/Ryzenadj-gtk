@@ -18,7 +18,8 @@ from pages import (
     build_auth_required_page,
     _build_dashboard_page,
     _build_profiles_page,
-    _build_slider_page
+    _build_slider_page,
+    _build_settings_page
 )
 
 
@@ -114,6 +115,12 @@ def build_main_window(app) -> Adw.ApplicationWindow:
     )
     view_stack.add_titled_with_icon(
         undervolt_page, "undervolt", "Undervolt", "computer-symbolic"
+    )
+
+    # Settings page
+    settings_page = _build_settings_page(app)
+    view_stack.add_titled_with_icon(
+        settings_page, "settings", "Settings", "preferences-system-symbolic"
     )
 
     # Sidebar Split View

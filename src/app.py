@@ -2,10 +2,11 @@
 """Application entry point"""
 import sys
 import warnings
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-import init_gi  # load correct library versions
-from main import RyzenadjApp
+import init_gi  # noqa: F401, E402
+from main import RyzenadjApp  # noqa: E402
 
 # Initialize and run the app
 

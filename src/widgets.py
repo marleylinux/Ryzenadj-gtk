@@ -210,13 +210,15 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
     btn_remove.set_valign(Gtk.Align.CENTER)
     btn_remove.set_margin_start(4)
 
-    def on_remove(_b, p=param, m=meta, c_cli=cur_cli, sli=slider, l=lo):
+    def on_remove(_b, p=param, m=meta, c_cli=cur_cli, sli=slider, low_val=lo):
         is_gfx = p in ("min-gfxclk", "max-gfxclk", "gfx-clk")
-        is_co = p == "set-coall" or p.startswith("set-coper-")
+        is_co = p == "set-coall" or p.startswith("set-coper-") or p == "set-cogfx"
         
         if is_gfx:
             params_to_remove = ["min-gfxclk", "max-gfxclk", "gfx-clk"]
-        elif is_co:
+        elif p == "set-cogfx":
+            params_to_remove = ["set-cogfx"]
+        elif p == "set-coall" or p.startswith("set-coper-"):
             if app:
                 params_to_remove = [k for k in app._slider_rows.keys() if k == "set-coall" or k.startswith("set-coper-")]
             else:
@@ -231,15 +233,9 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
                 for x in params_to_remove
             )
 
-        ok = True
-        err_msg = ""
-        for x in params_to_remove:
-            success, msg = ryzen.remove_setting_from_startup(x)
-            if not success:
-                ok = False
-                err_msg = msg
-
-        if ok:
+        success, msg = ryzen.remove_settings_from_startup(params_to_remove)
+        
+        if success:
             if app:
                 for x in params_to_remove:
                     if x in getattr(app, "pending_settings", {}):
@@ -275,38 +271,42 @@ def _build_slider_row(meta: dict, current_info: dict, pending: dict, app=None, i
                 app._update_conflicts()
 
             if app and app.win:
-                if is_gfx:
-                    heading = "Graphics Clock Overrides Cleared"
-                    body = "All graphics clock options have been cleared from startup settings.\n\nA reboot is recommended to fully return the graphics system to stock firmware behavior."
-                elif is_co:
-                    heading = "Curve Optimizer Cleared"
-                    body = "All Curve Optimizer settings (Global & Per Core) have been cleared.\n\nA reboot is recommended to fully clear these settings from hardware."
+                if was_configured:
+                    if is_gfx:
+                        heading = "Graphics Clock Overrides Cleared"
+                        body = "All graphics clock options have been cleared from startup settings.\n\nA reboot is recommended to fully return the graphics system to stock firmware behavior."
+                    elif is_co:
+                        heading = "Curve Optimizer Cleared"
+                        body = "All Curve Optimizer settings (Global & Per Core) have been cleared.\n\nA reboot is recommended to fully clear these settings from hardware."
+                    else:
+                        heading = "Setting Removed from Startup"
+                        body = f"{msg}\n\nA reboot is recommended to fully clear this setting from hardware."
+                    
+                    reboot_dialog = Adw.MessageDialog(
+                        transient_for=app.win,
+                        heading=heading,
+                        body=body,
+                    )
+                    reboot_dialog.add_response("later", "Later")
+                    reboot_dialog.add_response("reboot", "Reboot Now")
+                    reboot_dialog.set_default_response("reboot")
+                    reboot_dialog.set_response_appearance("reboot", Adw.ResponseAppearance.SUGGESTED)
+
+                    def on_reboot_response(d, response):
+                        if response == "reboot":
+                            subprocess.run(["pkexec", "systemctl", "reboot"], check=False)
+
+                    reboot_dialog.connect("response", on_reboot_response)
+                    reboot_dialog.present()
                 else:
-                    heading = "Setting Removed from Startup"
-                    body = f"{msg}\n\nA reboot is recommended to fully clear this setting from hardware."
-                
-                reboot_dialog = Adw.MessageDialog(
-                    transient_for=app.win,
-                    heading=heading,
-                    body=body,
-                )
-                reboot_dialog.add_response("later", "Later")
-                reboot_dialog.add_response("reboot", "Reboot Now")
-                reboot_dialog.set_default_response("reboot")
-                reboot_dialog.set_response_appearance("reboot", Adw.ResponseAppearance.SUGGESTED)
-
-                def on_reboot_response(d, response):
-                    if response == "reboot":
-                        subprocess.run(["pkexec", "systemctl", "reboot"], check=False)
-
-                reboot_dialog.connect("response", on_reboot_response)
-                reboot_dialog.present()
+                    if hasattr(app, "_show_toast"):
+                        app._show_toast(f"{param} was not configured in startup settings.", is_error=False)
             else:
                 if app and hasattr(app, "_show_toast"):
                     app._show_toast(msg + "\nYou may need to reboot for the hardware to fully clear this setting.", is_error=False)
         else:
             if app and hasattr(app, "_show_toast"):
-                app._show_toast(err_msg, is_error=True)
+                app._show_toast(msg, is_error=True)
 
     btn_remove.connect("clicked", on_remove)
     top_box.append(btn_remove)

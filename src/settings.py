@@ -48,37 +48,52 @@ def save_settings(settings: dict) -> None:
         log.error("Failed to save settings: %s", e)
 
 
-def remove_setting_from_startup(param: str) -> tuple[bool, str]:
-    """Remove a setting from startup configuration"""
+def remove_settings_from_startup(params: list[str] | str) -> tuple[bool, str]:
+    """Remove one or more settings from startup configuration"""
+    if isinstance(params, str):
+        params = [params]
     try:
         changed = False
 
         user_settings = load_settings()
-        if param in user_settings:
-            del user_settings[param]
+        for param in params:
+            if param in user_settings:
+                del user_settings[param]
+                changed = True
+        if changed:
             save_settings(user_settings)
-            changed = True
 
         if os.path.exists(SYSTEM_CONFIG_FILE):
             try:
                 system_settings = {}
                 with open(SYSTEM_CONFIG_FILE, "r") as f:
                     system_settings = json.load(f)
-                if param in system_settings:
-                    del system_settings[param]
+                
+                system_changed = False
+                for param in params:
+                    if param in system_settings:
+                        del system_settings[param]
+                        system_changed = True
+                
+                if system_changed:
                     with open(SYSTEM_CONFIG_FILE, "w") as f:
                         json.dump(system_settings, f, indent=2)
                     changed = True
             except Exception as e:
-                log.warning("Could not update system settings for %s: %s", param, e)
+                log.warning("Could not update system settings for %s: %s", params, e)
 
         if changed:
-            return True, f"Removed {param} from startup settings."
+            return True, f"Removed {', '.join(params)} from startup settings."
         else:
-            return True, f"{param} was not saved to startup."
+            return True, "Settings were not saved to startup."
     except Exception as e:
-        log.error("Failed to remove setting %s from startup: %s", param, e)
+        log.error("Failed to remove settings %s from startup: %s", params, e)
         return False, str(e)
+
+
+def remove_setting_from_startup(param: str) -> tuple[bool, str]:
+    """Remove a single setting from startup configuration"""
+    return remove_settings_from_startup([param])
 
 
 def is_service_enabled() -> bool:
@@ -125,7 +140,9 @@ def set_service_enabled(enabled: bool) -> tuple[bool, str]:
         if enabled:
             settings = load_settings()
             if settings:
-                sync_system_settings(settings)
+                if not sync_system_settings(settings):
+                    subprocess.run(["systemctl", "disable", "ryzenadj-gtk-apply.service"], capture_output=True)
+                    return False, "Failed to write system settings to /etc/ryzenadj-gtk/settings.json. Check directory permissions."
         else:
             try:
                 if os.path.exists(SYSTEM_CONFIG_FILE):

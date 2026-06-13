@@ -48,7 +48,7 @@ window.ryzenadj-win {
     padding: 24px;
     margin-bottom: 16px;
     background: radial-gradient(circle at top center, alpha(@accent_bg_color, 0.18) 0%, alpha(@accent_bg_color, 0.05) 40%, transparent 100%);
-    border-radius: 20px;
+    border-radius: 24px;
     border: 1px solid alpha(@accent_bg_color, 0.15);
 }
 
@@ -101,7 +101,7 @@ window.ryzenadj-win {
     background-color: alpha(@semantic_green, 0.2);
     color: @semantic_green;
     border: 1px solid alpha(@semantic_green, 0.4);
-    border-radius: 12px;
+    border-radius: 14px;
     padding: 4px 12px;
     font-size: 11px;
     font-weight: bold;
@@ -133,7 +133,7 @@ window.ryzenadj-win {
     background-color: alpha(@window_fg_color, 0.03);
     background-image: linear-gradient(145deg, alpha(@window_fg_color, 0.02), transparent);
     border: 1px solid alpha(@window_fg_color, 0.08);
-    border-radius: 18px;
+    border-radius: 20px;
     padding: 16px;
     transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     box-shadow: 0 2px 4px alpha(black, 0.03);
@@ -142,7 +142,7 @@ window.ryzenadj-win {
 .monitor-card:hover {
     background-color: alpha(@window_fg_color, 0.06);
     border-color: alpha(@accent_bg_color, 0.35);
-    transform: translateY(-3px);
+    transform: translateY(-4px);
     box-shadow: 0 8px 16px alpha(black, 0.08);
 }
 

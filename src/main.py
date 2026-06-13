@@ -3,7 +3,6 @@ import os
 import json
 import logging
 import threading
-import init_gi
 
 from gi.repository import Gtk, Adw, Gdk, Gio, GLib
 
@@ -18,7 +17,7 @@ log = logging.getLogger(__name__)
 
 APP_ID = "com.marley.ryzenadj-gtk"
 APP_NAME = "Ryzenadj-gtk"
-APP_VER = "1.8.0"
+APP_VER = "1.8.1"
 
 
 class RyzenadjApp(Adw.Application, MonitorMixin, ActionsMixin):
