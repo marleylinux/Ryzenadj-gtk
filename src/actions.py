@@ -61,6 +61,9 @@ class ActionsMixin:
         dialog.present()
 
     def _execute_apply(self, diff_settings: dict) -> None:
+        if getattr(self, "_is_applying", False):
+            return
+        self._is_applying = True
         self._set_actions_sensitive(False)
         self.btn_apply.set_label("Applying…")
 
@@ -72,6 +75,7 @@ class ActionsMixin:
         t.start()
 
     def _on_apply_done(self, ok: bool, msg: str, applied_diff: dict) -> bool:
+        self._is_applying = False
         self._set_actions_sensitive(True)
         self.btn_apply.set_label("Apply Settings")
         self._show_toast(msg, is_error=not ok)
@@ -88,6 +92,9 @@ class ActionsMixin:
     # ── Presets ────────────────────────────────────────────────────────────────
 
     def on_power_saving_clicked(self, _btn) -> None:
+        if getattr(self, "_is_applying", False):
+            return
+        self._is_applying = True
         self._set_actions_sensitive(False)
         def go():
             ok, msg = ryzen.apply_preset("power-saving")
@@ -95,6 +102,9 @@ class ActionsMixin:
         threading.Thread(target=go, daemon=True).start()
 
     def on_max_performance_clicked(self, _btn) -> None:
+        if getattr(self, "_is_applying", False):
+            return
+        self._is_applying = True
         self._set_actions_sensitive(False)
         def go():
             ok, msg = ryzen.apply_preset("max-performance")
@@ -102,6 +112,7 @@ class ActionsMixin:
         threading.Thread(target=go, daemon=True).start()
 
     def _on_preset_done(self, ok: bool, msg: str) -> bool:
+        self._is_applying = False
         self._set_actions_sensitive(True)
         self._show_toast(msg, is_error=not ok)
         if ok:

@@ -320,14 +320,17 @@ def _build_settings_page(app) -> Gtk.ScrolledWindow:
         options = ["Stock (No Profile)", "⚡ Power Saving Preset", "🚀 Max Performance Preset"] + profiles
         option_keys = ["", "__power_saving__", "__max_performance__"] + profiles
         
+        saved_ac = app.ui_settings.get("ac_profile", "")
+        saved_bat = app.ui_settings.get("battery_profile", "")
+
+        ac_row._option_keys = option_keys
+        bat_row._option_keys = option_keys
+
         model_ac = Gtk.StringList.new(options)
         model_bat = Gtk.StringList.new(options)
         
         ac_row.set_model(model_ac)
         bat_row.set_model(model_bat)
-        
-        saved_ac = app.ui_settings.get("ac_profile", "")
-        saved_bat = app.ui_settings.get("battery_profile", "")
         
         try:
             ac_idx = option_keys.index(saved_ac)
@@ -343,9 +346,6 @@ def _build_settings_page(app) -> Gtk.ScrolledWindow:
                 bat_row.set_selected(1)
             else:
                 bat_row.set_selected(0)
-
-        ac_row._option_keys = option_keys
-        bat_row._option_keys = option_keys
 
     app.update_automation_dropdowns = update_automation_dropdowns
     update_automation_dropdowns()
