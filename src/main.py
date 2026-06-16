@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 
 APP_ID = "com.marley.ryzenadj-gtk"
 APP_NAME = "Ryzenadj-gtk"
-APP_VER = "1.8.3"
+APP_VER = "1.8.4"
 
 
 
